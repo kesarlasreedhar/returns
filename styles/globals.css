@@ -606,8 +606,21 @@ button:disabled {
     padding: 12px;
   }
 
+  .app-shell.sidebar-collapsed .sidebar {
+    width: auto;
+  }
+
+  .app-shell.sidebar-collapsed .layout-main {
+    margin-left: 0;
+    width: 100%;
+  }
+
   .app-shell.sidebar-collapsed .side-link-label {
     display: inline;
+  }
+
+  .app-shell.sidebar-collapsed .side-link {
+    justify-content: flex-start;
   }
 
   .side-link-tooltip {
