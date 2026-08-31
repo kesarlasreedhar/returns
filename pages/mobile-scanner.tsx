@@ -14,6 +14,14 @@ import { AppUser, CatalogProduct, InspectionPhoto, PackageItem, PackageSummary }
 
 type WorkflowStep = "package" | "inspect" | "evidence" | "complete";
 
+type BarcodeDetectorLike = {
+  detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>>;
+};
+
+type WindowWithBarcodeDetector = typeof window & {
+  BarcodeDetector?: new () => BarcodeDetectorLike;
+};
+
 const conditions = ["New", "Opened", "Damaged"];
 
 export default function MobileScannerPage(): JSX.Element | null {
@@ -33,7 +41,10 @@ export default function MobileScannerPage(): JSX.Element | null {
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
+  const [trackingCameraOn, setTrackingCameraOn] = useState(false);
+  const [trackingScanNotice, setTrackingScanNotice] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const trackingVideoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     const currentUser = getCurrentUser();
@@ -51,7 +62,10 @@ export default function MobileScannerPage(): JSX.Element | null {
     });
   }, [router]);
 
-  useEffect(() => () => stopCamera(), []);
+  useEffect(() => () => {
+    stopCamera();
+    stopTrackingCamera();
+  }, []);
 
   const completedCount = useMemo(() => items.filter((item) => Boolean(item.actualCondition)).length, [items]);
   const focusedProduct = selectedItem ? catalog[selectedItem.barcode] : undefined;
@@ -64,8 +78,8 @@ export default function MobileScannerPage(): JSX.Element | null {
     setEvidenceDataUrl("");
   }, []);
 
-  async function loadPackage(): Promise<void> {
-    const tracking = trackingInput.trim();
+  async function loadPackage(trackingOverride?: string): Promise<void> {
+    const tracking = (trackingOverride || trackingInput).trim();
     if (!tracking) {
       setError("Scan or enter a return tracking number.");
       return;
@@ -230,6 +244,54 @@ export default function MobileScannerPage(): JSX.Element | null {
     setCameraOn(false);
   }
 
+  async function startTrackingCamera(): Promise<void> {
+    try {
+      setError("");
+      setTrackingScanNotice("");
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+      if (!trackingVideoRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      trackingVideoRef.current.srcObject = stream;
+      await trackingVideoRef.current.play();
+      setTrackingCameraOn(true);
+    } catch {
+      setError("Camera access was unavailable. Enter the tracking number manually.");
+    }
+  }
+
+  function stopTrackingCamera(): void {
+    const stream = trackingVideoRef.current?.srcObject as MediaStream | null;
+    stream?.getTracks().forEach((track) => track.stop());
+    if (trackingVideoRef.current) trackingVideoRef.current.srcObject = null;
+    setTrackingCameraOn(false);
+  }
+
+  async function scanTrackingBarcode(): Promise<void> {
+    const video = trackingVideoRef.current;
+    const BarcodeDetectorConstructor = (window as WindowWithBarcodeDetector).BarcodeDetector;
+    if (!video || !BarcodeDetectorConstructor) {
+      setTrackingScanNotice("Barcode detection is not supported by this browser. Enter the tracking number manually.");
+      return;
+    }
+    try {
+      const detector = new BarcodeDetectorConstructor();
+      const codes = await detector.detect(video);
+      const tracking = codes[0]?.rawValue?.trim();
+      if (!tracking) {
+        setTrackingScanNotice("No barcode found. Hold the label steady and try again.");
+        return;
+      }
+      setTrackingInput(tracking);
+      stopTrackingCamera();
+      setTrackingScanNotice("Barcode detected. Loading package...");
+      void loadPackage(tracking);
+    } catch {
+      setTrackingScanNotice("Unable to read the barcode. Try again or enter it manually.");
+    }
+  }
+
   function captureEvidence(): void {
     const video = videoRef.current;
     if (!video || !video.videoWidth) return;
@@ -286,6 +348,14 @@ export default function MobileScannerPage(): JSX.Element | null {
           <p>Use a handheld scanner or enter the carrier tracking number.</p>
           <label htmlFor="mobileTracking">Return tracking number</label>
           <input id="mobileTracking" autoFocus value={trackingInput} onChange={(event) => setTrackingInput(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void loadPackage()} />
+          <video className="mobile-camera mobile-tracking-camera" ref={trackingVideoRef} muted playsInline />
+          {trackingCameraOn ? (
+            <div className="mobile-button-row">
+              <button className="mobile-secondary-button" type="button" onClick={() => void scanTrackingBarcode()}>Scan Barcode</button>
+              <button className="mobile-secondary-button" type="button" onClick={stopTrackingCamera}>Stop Camera</button>
+            </div>
+          ) : <button className="mobile-secondary-button" type="button" onClick={() => void startTrackingCamera()}>Open Camera Scanner</button>}
+          {trackingScanNotice ? <p className="mobile-scan-notice">{trackingScanNotice}</p> : null}
           <button className="mobile-primary-button" type="button" onClick={() => void loadPackage()} disabled={isSaving}>{isSaving ? "Loading..." : "Load Package"}</button>
         </section>
       ) : null}
