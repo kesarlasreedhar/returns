@@ -618,6 +618,24 @@ button:disabled {
     font-size: 12px;
   }
 
+  .content-card {
+    padding: 12px;
+    overflow-x: auto;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+  }
+
+  .topbar h1 {
+    font-size: 18px;
+  }
+
+  .action-row .btn-primary,
+  .action-row .btn-secondary {
+    flex: 1 1 auto;
+  }
+
   .two-column {
     grid-template-columns: 1fr;
   }
