@@ -1,0 +1,32 @@
+{
+  "name": "returns-ops",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 8085",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.56.0",
+    "bcryptjs": "^3.0.3",
+    "next": "12.3.4",
+    "papaparse": "^5.5.3",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "ws": "^8.21.3",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "@types/node": "18.19.123",
+    "@types/papaparse": "^5.3.16",
+    "@types/react": "18.3.24",
+    "@types/react-dom": "18.3.7",
+    "eslint": "8.57.1",
+    "eslint-config-next": "12.3.4",
+    "typescript": "5.1.6"
+  }
+}

@@ -1,0 +1,10 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "npx create-next-app@latest": true,
+        "/^Set-Location C:/Engineering/Code/returns; node -v; npm -v$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "npx create-next-app@12": true
+    }
+}
