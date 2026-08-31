@@ -1,0 +1,18 @@
+{
+  "name": "Neeros Returns Scanner",
+  "short_name": "Returns Scanner",
+  "description": "Mobile return package inspection and processing.",
+  "start_url": "/mobile-scanner",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d1418",
+  "theme_color": "#0d1418",
+  "icons": [
+    {
+      "src": "/mobile-scanner-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
