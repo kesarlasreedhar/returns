@@ -425,6 +425,25 @@ select {
   margin-top: 8px;
   margin-bottom: 8px;
 }
+
+.barcode-scan-box {
+  margin: 8px 0 12px;
+}
+
+.barcode-scan-video {
+  display: none;
+  min-height: 230px;
+  object-fit: cover;
+}
+
+.barcode-scan-video.is-active {
+  display: block;
+}
+
+.barcode-scan-box .hint-text {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
 button:disabled {
   opacity: 0.65;
   cursor: not-allowed;

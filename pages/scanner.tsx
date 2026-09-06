@@ -33,9 +33,13 @@ export default function ScannerPage(): JSX.Element | null {
   const [photoByItemId, setPhotoByItemId] = useState<Record<string, InspectionPhoto>>({});
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState("");
+  const [barcodeCameraOn, setBarcodeCameraOn] = useState(false);
+  const [barcodeCameraError, setBarcodeCameraError] = useState("");
   const [evidenceDataUrl, setEvidenceDataUrl] = useState("");
   const [evidencePreview, setEvidencePreview] = useState("");
   const evidenceVideoRef = useRef<HTMLVideoElement | null>(null);
+  const barcodeVideoRef = useRef<HTMLVideoElement | null>(null);
+  const barcodeScannerControlsRef = useRef<{ stop: () => void } | null>(null);
 
   useEffect(() => {
     const current = getCurrentUser();
@@ -137,26 +141,110 @@ export default function ScannerPage(): JSX.Element | null {
   useEffect(() => {
     return () => {
       stopEvidenceCamera();
+      stopBarcodeCamera();
     };
   }, []);
+
+  function normalizeBarcode(value: string): string {
+    return value.trim().toUpperCase().replace(/[\s-]/g, "");
+  }
+
+  function findMatchingItem(value: string): PackageItem | null {
+    const normalized = normalizeBarcode(value);
+    return (
+      itemsForTracking.find((item) => {
+        const candidate = normalizeBarcode(item.barcode);
+        return candidate === normalized || candidate.replace(/^0/, "") === normalized.replace(/^0/, "");
+      }) || null
+    );
+  }
+
+  function applyScannedBarcode(value: string): void {
+    setBarcodeInput(value);
+    const matched = findMatchingItem(value);
+    if (matched) {
+      const key = makeRowKey(matched);
+      setFocusedRowKey(key);
+      setExpandedRowKey(key);
+      setExpectedCondition(matched.expectedCondition || "");
+      setScanMessage(`Barcode ${value} matched to ${matched.title || "package item"}.`);
+    } else {
+      setExpectedCondition("");
+      setScanMessage(`Barcode ${value} scanned, but it is not in this package.`);
+    }
+  }
 
   function onBarcodeChange(event: ChangeEvent<HTMLInputElement>): void {
     const value = event.target.value;
     setBarcodeInput(value);
 
-    const normalized = value.trim().toLowerCase();
-    if (!normalized) {
+    if (!normalizeBarcode(value)) {
       setExpectedCondition("");
       return;
     }
 
-    const matched = itemsForTracking.find((item) => item.barcode.trim().toLowerCase() === normalized);
+    const matched = findMatchingItem(value);
     if (matched) {
       const key = makeRowKey(matched);
       setFocusedRowKey(key);
       setExpandedRowKey(key);
       setExpectedCondition(matched.expectedCondition || "");
     }
+  }
+
+  async function startBarcodeCamera(): Promise<void> {
+    const video = barcodeVideoRef.current;
+    if (!video) {
+      return;
+    }
+
+    try {
+      setBarcodeCameraError("");
+      const [{ BrowserMultiFormatReader }, { BarcodeFormat }] = await Promise.all([import("@zxing/browser"), import("@zxing/library")]);
+      const reader = new BrowserMultiFormatReader();
+      reader.possibleFormats = [
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.QR_CODE
+      ];
+      const controls = await reader.decodeFromConstraints(
+        {
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: false
+        },
+        video,
+        (result) => {
+          if (!result) {
+            return;
+          }
+          applyScannedBarcode(result.getText());
+          stopBarcodeCamera();
+        }
+      );
+      barcodeScannerControlsRef.current = controls;
+      setBarcodeCameraOn(true);
+    } catch (error) {
+      setBarcodeCameraError(error instanceof Error ? error.message : "Unable to start barcode camera.");
+      setBarcodeCameraOn(false);
+    }
+  }
+
+  function stopBarcodeCamera(): void {
+    barcodeScannerControlsRef.current?.stop();
+    barcodeScannerControlsRef.current = null;
+    const video = barcodeVideoRef.current;
+    if (video?.srcObject) {
+      (video.srcObject as MediaStream).getTracks().forEach((track) => track.stop());
+      video.srcObject = null;
+    }
+    setBarcodeCameraOn(false);
   }
 
   function selectItem(item: PackageItem): void {
@@ -425,6 +513,22 @@ export default function ScannerPage(): JSX.Element | null {
 
           <label htmlFor="barcodeInput">Barcode (EAN/UPC)</label>
           <input id="barcodeInput" placeholder="Barcode auto-fills" value={barcodeInput} onChange={onBarcodeChange} />
+          <div className="barcode-scan-box">
+            <div className="action-row">
+              {!barcodeCameraOn ? (
+                <button className="btn-secondary" type="button" onClick={() => void startBarcodeCamera()}>
+                  Scan Barcode
+                </button>
+              ) : (
+                <button className="btn-secondary" type="button" onClick={stopBarcodeCamera}>
+                  Stop Barcode Scan
+                </button>
+              )}
+            </div>
+            <video ref={barcodeVideoRef} className={`video-box barcode-scan-video ${barcodeCameraOn ? "is-active" : ""}`} muted playsInline />
+            {barcodeCameraOn ? <p className="hint-text">Hold the barcode inside the camera frame. Move closer or farther slowly for faded labels.</p> : null}
+            {barcodeCameraError ? <p className="error-text">{barcodeCameraError}</p> : null}
+          </div>
 
           <label htmlFor="expectedCondition">Customer Expected Condition</label>
           <input id="expectedCondition" value={expectedCondition} readOnly />
