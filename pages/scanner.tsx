@@ -13,6 +13,14 @@ import {
 } from "@/lib/storage";
 import { AppUser, CatalogProduct, InspectionPhoto, PackageItem, PackageSummary } from "@/types/domain";
 
+function normalizeBarcode(value: string): string {
+  return value.trim().toUpperCase().replace(/[\s-]/g, "");
+}
+
+function normalizeTrackingNumber(value: string): string {
+  return normalizeBarcode(value);
+}
+
 export default function ScannerPage(): JSX.Element | null {
   const router = useRouter();
   const [user, setUser] = useState<AppUser | null>(null);
@@ -82,7 +90,8 @@ export default function ScannerPage(): JSX.Element | null {
   const refreshTrackingContext = useCallback(
     async (tracking: string): Promise<void> => {
       const [items, packages, photos] = await Promise.all([getPackageItems(), getPackages(), getInspectionPhotos()]);
-      const filtered = items.filter((item) => item.returnTrackingNumber === tracking);
+      const normalizedTracking = normalizeTrackingNumber(tracking);
+      const filtered = items.filter((item) => normalizeTrackingNumber(item.returnTrackingNumber) === normalizedTracking);
       setItemsForTracking(filtered);
 
       setSelectedRows(
@@ -92,13 +101,15 @@ export default function ScannerPage(): JSX.Element | null {
         }, {})
       );
 
-      const pkg = packages.find((pkgItem) => pkgItem.returnTrackingNumber === tracking) || null;
+      const pkg = packages.find((pkgItem) => normalizeTrackingNumber(pkgItem.returnTrackingNumber) === normalizedTracking) || null;
       setActivePackage(pkg);
 
       if (pkg?.status === "processed") {
         setStatusNotice("This package is already scanned and marked as processed. Showing saved details and images.");
+      } else if (pkg) {
+        setStatusNotice(`Package ${pkg.returnTrackingNumber} loaded. ${filtered.length} item${filtered.length === 1 ? "" : "s"} found.`);
       } else {
-        setStatusNotice("");
+        setStatusNotice(`No package found for ${tracking}. Check the tracking number or scan the long barcode below 'TRACKING #'.`);
       }
 
       const photoMap: Record<string, InspectionPhoto> = {};
@@ -150,14 +161,18 @@ export default function ScannerPage(): JSX.Element | null {
     };
   }, []);
 
-  function normalizeBarcode(value: string): string {
-    return value.trim().toUpperCase().replace(/[\s-]/g, "");
-  }
+  function findKnownTrackingNumber(value: string, packages: PackageSummary[]): string | null {
+    const scanned = normalizeTrackingNumber(value);
+    const exact = packages.find((pkg) => normalizeTrackingNumber(pkg.returnTrackingNumber) === scanned);
+    if (exact) {
+      return exact.returnTrackingNumber;
+    }
 
-  function extractUpsTrackingNumber(value: string): string | null {
-    const normalized = normalizeBarcode(value);
-    const match = normalized.match(/1Z[A-Z0-9]{16}/);
-    return match ? match[0] : null;
+    const embedded = packages.find((pkg) => {
+      const tracking = normalizeTrackingNumber(pkg.returnTrackingNumber);
+      return tracking.length >= 12 && scanned.includes(tracking);
+    });
+    return embedded?.returnTrackingNumber || null;
   }
 
   function findMatchingItem(value: string): PackageItem | null {
@@ -279,19 +294,19 @@ export default function ScannerPage(): JSX.Element | null {
           audio: false
         },
         video,
-        (result) => {
+        async (result) => {
           if (!result) {
             return;
           }
 
-          const tracking = extractUpsTrackingNumber(result.getText());
+          const tracking = findKnownTrackingNumber(result.getText(), await getPackages());
           if (!tracking) {
-            setTrackingCameraError("That code is not a UPS tracking number. Aim at the long barcode below 'TRACKING #'.");
+            setTrackingCameraError(`Ignored '${result.getText()}': it does not match an uploaded package. Aim at the package tracking barcode.`);
             return;
           }
 
           setTrackingInput(tracking);
-          setScanMessage(`UPS tracking ${tracking} scanned.`);
+          setScanMessage(`Tracking ${tracking} scanned.`);
           stopTrackingCamera();
         }
       );
@@ -557,6 +572,7 @@ export default function ScannerPage(): JSX.Element | null {
             placeholder="Scan or type tracking number"
             value={trackingInput}
             onChange={(event) => setTrackingInput(event.target.value)}
+            onBlur={() => setTrackingInput((value) => normalizeTrackingNumber(value))}
           />
           <div className="barcode-scan-box">
             <div className="action-row">
@@ -571,7 +587,7 @@ export default function ScannerPage(): JSX.Element | null {
               )}
             </div>
             <video ref={trackingVideoRef} className={`video-box barcode-scan-video ${trackingCameraOn ? "is-active" : ""}`} muted playsInline />
-            {trackingCameraOn ? <p className="hint-text">Scan the long barcode below “TRACKING #”. The scanner ignores non-UPS codes.</p> : null}
+            {trackingCameraOn ? <p className="hint-text">Scan the package tracking barcode. The scanner matches UPS, FedEx, USPS, and other uploaded carrier tracking values.</p> : null}
             {trackingCameraError ? <p className="error-text">{trackingCameraError}</p> : null}
           </div>
 
@@ -600,7 +616,7 @@ export default function ScannerPage(): JSX.Element | null {
             <div className="action-row">
               {!barcodeCameraOn ? (
                 <button className="btn-secondary" type="button" onClick={() => void startBarcodeCamera()}>
-                  Scan Barcode
+                  Scan Item Barcode
                 </button>
               ) : (
                 <button className="btn-secondary" type="button" onClick={stopBarcodeCamera}>

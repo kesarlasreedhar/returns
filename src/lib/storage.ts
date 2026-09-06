@@ -537,7 +537,7 @@ export async function getOperationNotes(): Promise<OperationNote[]> {
   try {
     const { data, error } = await supabase
       .from("operation_notes")
-      .select("id, note, created_at, app_users(name, email)")
+      .select("id, note, created_at, app_users(full_name, email)")
       .order("created_at", { ascending: false })
       .limit(200);
 
@@ -548,7 +548,7 @@ export async function getOperationNotes(): Promise<OperationNote[]> {
     return data.map((row) => ({
       id: row.id,
       note: row.note,
-      createdBy: (row.app_users as any)?.name || (row.app_users as any)?.email || "Unknown",
+      createdBy: (row.app_users as any)?.full_name || (row.app_users as any)?.email || "Unknown",
       createdAt: row.created_at
     }));
   } catch {
