@@ -88,3 +88,10 @@ export type TimesheetEntry = {
   notes: string;
   createdAt: string;
 };
+
+export type OperationNote = {
+  id: string;
+  note: string;
+  createdBy: string;
+  createdAt: string;
+};

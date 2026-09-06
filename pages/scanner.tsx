@@ -35,11 +35,15 @@ export default function ScannerPage(): JSX.Element | null {
   const [cameraError, setCameraError] = useState("");
   const [barcodeCameraOn, setBarcodeCameraOn] = useState(false);
   const [barcodeCameraError, setBarcodeCameraError] = useState("");
+  const [trackingCameraOn, setTrackingCameraOn] = useState(false);
+  const [trackingCameraError, setTrackingCameraError] = useState("");
   const [evidenceDataUrl, setEvidenceDataUrl] = useState("");
   const [evidencePreview, setEvidencePreview] = useState("");
   const evidenceVideoRef = useRef<HTMLVideoElement | null>(null);
   const barcodeVideoRef = useRef<HTMLVideoElement | null>(null);
+  const trackingVideoRef = useRef<HTMLVideoElement | null>(null);
   const barcodeScannerControlsRef = useRef<{ stop: () => void } | null>(null);
+  const trackingScannerControlsRef = useRef<{ stop: () => void } | null>(null);
 
   useEffect(() => {
     const current = getCurrentUser();
@@ -142,11 +146,18 @@ export default function ScannerPage(): JSX.Element | null {
     return () => {
       stopEvidenceCamera();
       stopBarcodeCamera();
+      stopTrackingCamera();
     };
   }, []);
 
   function normalizeBarcode(value: string): string {
     return value.trim().toUpperCase().replace(/[\s-]/g, "");
+  }
+
+  function extractUpsTrackingNumber(value: string): string | null {
+    const normalized = normalizeBarcode(value);
+    const match = normalized.match(/1Z[A-Z0-9]{16}/);
+    return match ? match[0] : null;
   }
 
   function findMatchingItem(value: string): PackageItem | null {
@@ -245,6 +256,62 @@ export default function ScannerPage(): JSX.Element | null {
       video.srcObject = null;
     }
     setBarcodeCameraOn(false);
+  }
+
+  async function startTrackingCamera(): Promise<void> {
+    const video = trackingVideoRef.current;
+    if (!video) {
+      return;
+    }
+
+    try {
+      setTrackingCameraError("");
+      const [{ BrowserMultiFormatReader }, { BarcodeFormat }] = await Promise.all([import("@zxing/browser"), import("@zxing/library")]);
+      const reader = new BrowserMultiFormatReader();
+      reader.possibleFormats = [BarcodeFormat.CODE_128, BarcodeFormat.QR_CODE, BarcodeFormat.DATA_MATRIX];
+      const controls = await reader.decodeFromConstraints(
+        {
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: false
+        },
+        video,
+        (result) => {
+          if (!result) {
+            return;
+          }
+
+          const tracking = extractUpsTrackingNumber(result.getText());
+          if (!tracking) {
+            setTrackingCameraError("That code is not a UPS tracking number. Aim at the long barcode below 'TRACKING #'.");
+            return;
+          }
+
+          setTrackingInput(tracking);
+          setScanMessage(`UPS tracking ${tracking} scanned.`);
+          stopTrackingCamera();
+        }
+      );
+      trackingScannerControlsRef.current = controls;
+      setTrackingCameraOn(true);
+    } catch (error) {
+      setTrackingCameraError(error instanceof Error ? error.message : "Unable to start tracking camera.");
+      setTrackingCameraOn(false);
+    }
+  }
+
+  function stopTrackingCamera(): void {
+    trackingScannerControlsRef.current?.stop();
+    trackingScannerControlsRef.current = null;
+    const video = trackingVideoRef.current;
+    if (video?.srcObject) {
+      (video.srcObject as MediaStream).getTracks().forEach((track) => track.stop());
+      video.srcObject = null;
+    }
+    setTrackingCameraOn(false);
   }
 
   function selectItem(item: PackageItem): void {
@@ -491,6 +558,22 @@ export default function ScannerPage(): JSX.Element | null {
             value={trackingInput}
             onChange={(event) => setTrackingInput(event.target.value)}
           />
+          <div className="barcode-scan-box">
+            <div className="action-row">
+              {!trackingCameraOn ? (
+                <button className="btn-secondary" type="button" onClick={() => void startTrackingCamera()}>
+                  Scan Tracking
+                </button>
+              ) : (
+                <button className="btn-secondary" type="button" onClick={stopTrackingCamera}>
+                  Stop Tracking Scan
+                </button>
+              )}
+            </div>
+            <video ref={trackingVideoRef} className={`video-box barcode-scan-video ${trackingCameraOn ? "is-active" : ""}`} muted playsInline />
+            {trackingCameraOn ? <p className="hint-text">Scan the long barcode below “TRACKING #”. The scanner ignores non-UPS codes.</p> : null}
+            {trackingCameraError ? <p className="error-text">{trackingCameraError}</p> : null}
+          </div>
 
           <details className="package-details" open={Boolean(activePackage)}>
             <summary>Package Details</summary>

@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { ReactNode, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { useRouter } from "next/router";
+import { saveOperationNote } from "@/lib/storage";
 import { AppRole, AppUser } from "@/types/domain";
 
 type Props = {
@@ -10,7 +11,7 @@ type Props = {
   children: ReactNode;
 };
 
-type MenuIcon = "dashboard" | "upload" | "catalog" | "processing" | "scanner" | "reports" | "reboxing" | "timesheet" | "users";
+type MenuIcon = "dashboard" | "upload" | "catalog" | "processing" | "scanner" | "reports" | "reboxing" | "timesheet" | "users" | "notes";
 
 type MenuItem = {
   href: string;
@@ -27,6 +28,7 @@ const menuByRole: Record<AppRole, MenuItem[]> = {
     { href: "/scanner", label: "Scanner", icon: "scanner" },
     { href: "/reboxing", label: "Reboxing", icon: "reboxing" },
     { href: "/timesheet", label: "Timesheet", icon: "timesheet" },
+    { href: "/notes", label: "Notes", icon: "notes" },
     { href: "/reports", label: "Reports", icon: "reports" },
     { href: "/users", label: "Users", icon: "users" }
   ],
@@ -34,6 +36,7 @@ const menuByRole: Record<AppRole, MenuItem[]> = {
     { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
     { href: "/uploads", label: "Seller Upload", icon: "upload" },
     { href: "/catalog", label: "Catalog Data", icon: "catalog" },
+    { href: "/notes", label: "Notes", icon: "notes" },
     { href: "/reports", label: "Reports", icon: "reports" }
   ],
   processor: [
@@ -42,7 +45,8 @@ const menuByRole: Record<AppRole, MenuItem[]> = {
     { href: "/processing", label: "Processing", icon: "processing" },
     { href: "/scanner", label: "Scanner", icon: "scanner" },
     { href: "/reboxing", label: "Reboxing", icon: "reboxing" },
-    { href: "/timesheet", label: "Timesheet", icon: "timesheet" }
+    { href: "/timesheet", label: "Timesheet", icon: "timesheet" },
+    { href: "/notes", label: "Notes", icon: "notes" }
   ]
 };
 
@@ -92,6 +96,11 @@ function NavIcon({ name }: { name: MenuIcon }): JSX.Element {
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M9 4a4 4 0 100 8 4 4 0 000-8zm0 10c-4 0-7 2-7 4.5V20h14v-1.5C16 16 13 14 9 14zm8-9a3.5 3.5 0 100 7 3.5 3.5 0 000-7zm0 9c-.6 0-1.2.06-1.8.17 1.7 1 2.8 2.6 2.8 4.83V20h5v-1.5c0-2.5-2.7-4.5-6-4.5z" fill="currentColor" />
       </svg>
+    ),
+    notes: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 3h14v14H9l-4 4V3zm3 5h8V6H8v2zm0 4h6v-2H8v2z" fill="currentColor" />
+      </svg>
     )
   };
 
@@ -102,6 +111,10 @@ export function AppLayout({ title, user, onLogout, children }: Props): JSX.Eleme
   const router = useRouter();
   const menuItems = menuByRole[user.role];
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [noteError, setNoteError] = useState("");
+  const [isSavingNote, setIsSavingNote] = useState(false);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("returns_sidebar_collapsed");
@@ -116,6 +129,21 @@ export function AppLayout({ title, user, onLogout, children }: Props): JSX.Eleme
       window.localStorage.setItem("returns_sidebar_collapsed", next ? "1" : "0");
       return next;
     });
+  }
+
+  async function submitNote(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setNoteError("");
+    setIsSavingNote(true);
+    try {
+      await saveOperationNote(note, user.email);
+      setNote("");
+      setNotesOpen(false);
+    } catch (error) {
+      setNoteError(error instanceof Error ? error.message : "Failed to save note.");
+    } finally {
+      setIsSavingNote(false);
+    }
   }
 
   return (
@@ -158,13 +186,37 @@ export function AppLayout({ title, user, onLogout, children }: Props): JSX.Eleme
               Logged in as {user.name} ({user.role})
             </p>
           </div>
-          <button onClick={onLogout} className="btn-secondary" type="button">
-            Logout
-          </button>
+          <div className="topbar-actions">
+            <button className="header-icon-btn" type="button" onClick={() => setNotesOpen(true)} aria-label="Add note" title="Add note">
+              <NavIcon name="notes" />
+            </button>
+            <button onClick={onLogout} className="btn-secondary" type="button">
+              Logout
+            </button>
+          </div>
         </header>
 
         <main className="content-card">{children}</main>
       </section>
+      {notesOpen ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setNotesOpen(false)}>
+          <section className="modal-card note-modal" role="dialog" aria-modal="true" aria-labelledby="add-note-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2 id="add-note-title">Add Note</h2>
+              <button className="header-icon-btn" type="button" onClick={() => setNotesOpen(false)} aria-label="Close notes">X</button>
+            </div>
+            <form onSubmit={(event) => void submitNote(event)}>
+              <label htmlFor="globalOperationNote">Note</label>
+              <textarea id="globalOperationNote" value={note} onChange={(event) => setNote(event.target.value)} rows={5} autoFocus />
+              {noteError ? <p className="error-text">{noteError}</p> : null}
+              <div className="action-row">
+                <button className="btn-primary" type="submit" disabled={isSavingNote}>{isSavingNote ? "Saving..." : "Save Note"}</button>
+                <Link href="/notes"><a className="btn-secondary" onClick={() => setNotesOpen(false)}>View Notes</a></Link>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

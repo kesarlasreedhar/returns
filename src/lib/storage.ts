@@ -7,6 +7,7 @@ import {
   PackageSummary,
   ReboxingEvent,
   TimesheetEntry,
+  OperationNote,
   UploadBatch
 } from "@/types/domain";
 
@@ -503,6 +504,51 @@ export async function getTimesheetEntries(): Promise<TimesheetEntry[]> {
       workDate: row.work_date,
       hoursWorked: Number(row.hours_worked),
       notes: row.notes || "",
+      createdAt: row.created_at
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function saveOperationNote(note: string, createdBy: string): Promise<void> {
+  const trimmedNote = note.trim();
+  if (!trimmedNote) {
+    throw new Error("Enter a note before saving.");
+  }
+
+  try {
+    const { data: userData } = await supabase.from("app_users").select("id").eq("email", createdBy).maybeSingle();
+    const { error } = await supabase.from("operation_notes").insert({
+      note: trimmedNote,
+      created_by: userData?.id || null
+    });
+
+    if (error) {
+      throw new Error(error.message || "Unable to save note");
+    }
+  } catch (err) {
+    console.error("Error saving operation note:", err);
+    throw err instanceof Error ? err : new Error("Failed to save note.");
+  }
+}
+
+export async function getOperationNotes(): Promise<OperationNote[]> {
+  try {
+    const { data, error } = await supabase
+      .from("operation_notes")
+      .select("id, note, created_at, app_users(name, email)")
+      .order("created_at", { ascending: false })
+      .limit(200);
+
+    if (error || !data) {
+      return [];
+    }
+
+    return data.map((row) => ({
+      id: row.id,
+      note: row.note,
+      createdBy: (row.app_users as any)?.name || (row.app_users as any)?.email || "Unknown",
       createdAt: row.created_at
     }));
   } catch {
