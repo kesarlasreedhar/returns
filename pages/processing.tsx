@@ -6,6 +6,10 @@ import { getCurrentUser, logout } from "@/lib/auth";
 import { getPackages, updatePackageStatus } from "@/lib/storage";
 import { AppUser, PackageStatus, PackageSummary } from "@/types/domain";
 
+function normalizeTrackingNumber(value: string): string {
+  return value.trim().toUpperCase().replace(/[\s-]/g, "");
+}
+
 export default function ProcessingPage(): JSX.Element | null {
   const router = useRouter();
   const [user, setUser] = useState<AppUser | null>(null);
@@ -13,6 +17,7 @@ export default function ProcessingPage(): JSX.Element | null {
   const [statusFilter, setStatusFilter] = useState<"all" | PackageStatus>("all");
   const [minRefund, setMinRefund] = useState("");
   const [maxRefund, setMaxRefund] = useState("");
+  const [trackingSearch, setTrackingSearch] = useState("");
 
   useEffect(() => {
     const current = getCurrentUser();
@@ -41,6 +46,11 @@ export default function ProcessingPage(): JSX.Element | null {
 
   const filteredPackages = useMemo(() => {
     return packages.filter((pkg) => {
+      const normalizedSearch = normalizeTrackingNumber(trackingSearch);
+      if (normalizedSearch && !normalizeTrackingNumber(pkg.returnTrackingNumber).includes(normalizedSearch)) {
+        return false;
+      }
+
       if (statusFilter !== "all" && pkg.status !== statusFilter) {
         return false;
       }
@@ -56,7 +66,7 @@ export default function ProcessingPage(): JSX.Element | null {
 
       return true;
     });
-  }, [maxRefund, minRefund, packages, statusFilter]);
+  }, [maxRefund, minRefund, packages, statusFilter, trackingSearch]);
 
   if (!user) {
     return null;
@@ -72,6 +82,17 @@ export default function ProcessingPage(): JSX.Element | null {
       }}
     >
       <section className="panel-grid three-column">
+        <article className="panel">
+          <h2>Find Tracking</h2>
+          <label htmlFor="trackingSearch">Tracking Number</label>
+          <input
+            id="trackingSearch"
+            value={trackingSearch}
+            onChange={(event) => setTrackingSearch(event.target.value)}
+            placeholder="Scan or type tracking"
+          />
+        </article>
+
         <article className="panel">
           <h2>Filter Queue</h2>
           <label htmlFor="statusFilter">Status</label>
