@@ -1,8 +1,15 @@
 import Papa from "papaparse";
+import * as XLSX from "xlsx";
 import { ZodError, z } from "zod";
 import { CatalogProduct, PackageItem, PackageSummary, PackageStatus } from "@/types/domain";
 
 type CsvRow = Record<string, unknown>;
+export type CsvUploadKind = "catalog" | "packages" | "package_items" | "unknown";
+export type ReturnsWorkbookData = {
+  catalog: CatalogProduct[];
+  packages: PackageSummary[];
+  packageItems: PackageItem[];
+};
 
 const headerAliases = {
   returnTrackingNumber: ["Return Tracking Number", "Return Tracking #", "Tracking Number", "Tracking #", "ReturnTrackingNumber"],
@@ -58,6 +65,11 @@ function getField(row: CsvRow, aliases: readonly string[]): unknown {
     }
   }
   return undefined;
+}
+
+function hasHeader(headers: string[], aliases: readonly string[]): boolean {
+  const normalizedHeaders = new Set(headers.map(normalizeHeader));
+  return aliases.some((alias) => normalizedHeaders.has(normalizeHeader(alias)));
 }
 
 function asString(value: unknown): string {
@@ -139,6 +151,24 @@ function buildRowsFromMatrix(matrix: unknown[][], headerRowIndex: number): Recor
   return rows;
 }
 
+function rowsFromMatrix(matrix: unknown[][]): Record<string, unknown>[] {
+  if (matrix.length === 0) {
+    return [];
+  }
+
+  const probeRows = Math.min(matrix.length, 6);
+  let bestHeaderIndex = 0;
+  let bestScore = -1;
+  for (let index = 0; index < probeRows; index += 1) {
+    const score = scoreHeaderRow(matrix[index] || []);
+    if (score > bestScore) {
+      bestScore = score;
+      bestHeaderIndex = index;
+    }
+  }
+  return buildRowsFromMatrix(matrix, bestHeaderIndex);
+}
+
 function formatZodRowError(error: ZodError, rowNumber: number): string {
   const fields = error.issues.map((issue) => String(issue.path[0] || "field"));
   const uniqueFields = Array.from(new Set(fields));
@@ -215,25 +245,118 @@ export async function parseCsv(file: File): Promise<Record<string, unknown>[]> {
     return [];
   }
 
-  const probeRows = Math.min(matrix.length, 6);
-  let bestHeaderIndex = 0;
-  let bestScore = -1;
+  return rowsFromMatrix(matrix);
+}
 
-  for (let i = 0; i < probeRows; i += 1) {
-    const score = scoreHeaderRow(matrix[i] || []);
-    if (score > bestScore) {
-      bestScore = score;
-      bestHeaderIndex = i;
-    }
+function normalizeSheetName(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s_-]+/g, "");
+}
+
+export async function parseReturnsWorkbook(file: File): Promise<ReturnsWorkbookData> {
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
+  const expectedSheets = ["catalog", "packages", "packageitems"];
+  const actualSheets = workbook.SheetNames.map(normalizeSheetName);
+
+  if (actualSheets.length < 3 || expectedSheets.some((name, index) => actualSheets[index] !== name)) {
+    throw new Error(
+      `Workbook upload stopped. Sheets must be ordered and named: Catalog, Packages, Package Items. Found: ${workbook.SheetNames.join(" | ") || "(none)"}`
+    );
   }
 
-  return buildRowsFromMatrix(matrix, bestHeaderIndex);
+  const sheets = workbook.SheetNames.slice(0, 3).map((name) => rowsFromMatrix(XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[name], { header: 1, defval: "", raw: false })));
+  const [catalogRows, packageRows, packageItemRows] = sheets;
+  if (!catalogRows.length || !packageRows.length || !packageItemRows.length) {
+    throw new Error("Workbook upload stopped. Catalog, Packages, and Package Items must each contain a header row and at least one data row.");
+  }
+
+  const catalog = mapCatalog(catalogRows);
+  const packages = mapPackages(packageRows);
+  const packageItems = mapPackageItems(packageItemRows);
+  const packageTracking = new Set(packages.map((row) => row.returnTrackingNumber.trim().toUpperCase()));
+  const missingPackages = Array.from(new Set(packageItems.map((row) => row.returnTrackingNumber.trim().toUpperCase()).filter((tracking) => !packageTracking.has(tracking))));
+  if (missingPackages.length > 0) {
+    throw new Error(`Workbook upload stopped. Package Items contains tracking numbers missing from Packages:\n${missingPackages.slice(0, 20).map((tracking) => `- ${tracking}`).join("\n")}`);
+  }
+
+  const itemTracking = new Set(packageItems.map((row) => row.returnTrackingNumber.trim().toUpperCase()));
+  const packagesWithoutItems = packages.map((row) => row.returnTrackingNumber).filter((tracking) => !itemTracking.has(tracking.trim().toUpperCase()));
+  if (packagesWithoutItems.length > 0) {
+    throw new Error(`Workbook upload stopped. These Packages have no matching Package Items:\n${packagesWithoutItems.slice(0, 20).map((tracking) => `- ${tracking}`).join("\n")}`);
+  }
+
+  const unitsByTracking = new Map<string, number>();
+  for (const item of packageItems) {
+    const key = item.returnTrackingNumber.trim().toUpperCase();
+    unitsByTracking.set(key, (unitsByTracking.get(key) || 0) + item.qtyExpected);
+  }
+  const unitMismatches = packages.filter((pkg) => (unitsByTracking.get(pkg.returnTrackingNumber.trim().toUpperCase()) || 0) !== pkg.totalUnits);
+  if (unitMismatches.length > 0) {
+    throw new Error(
+      `Workbook upload stopped. Package Total Units does not match the sum of Package Item Qty Expected:\n${unitMismatches
+        .slice(0, 20)
+        .map((pkg) => `- ${pkg.returnTrackingNumber}: Package Total Units ${pkg.totalUnits}, Package Items sum ${unitsByTracking.get(pkg.returnTrackingNumber.trim().toUpperCase()) || 0}`)
+        .join("\n")}`
+    );
+  }
+
+  return { catalog, packages, packageItems };
+}
+
+export function detectCsvUploadKind(rawRows: Record<string, unknown>[]): CsvUploadKind {
+  const headers = Object.keys(rawRows[0] || {});
+  const packageItemSignals = [
+    headerAliases.qtyExpected,
+    headerAliases.expectedCondition,
+    headerAliases.customerReturnReason,
+    headerAliases.refundAmountUsd,
+    headerAliases.orderReference
+  ].filter((aliases) => hasHeader(headers, aliases)).length;
+  const packageSignals = [
+    headerAliases.distinctItems,
+    headerAliases.totalUnits,
+    headerAliases.totalRefundUsd,
+    headerAliases.expectedConditions,
+    headerAliases.orderReferences,
+    headerAliases.earliestReturnRequested
+  ].filter((aliases) => hasHeader(headers, aliases)).length;
+
+  if (hasHeader(headers, headerAliases.barcode) && packageItemSignals >= 2) {
+    return "package_items";
+  }
+  if (packageSignals >= 2) {
+    return "packages";
+  }
+  if (hasHeader(headers, headerAliases.barcode)) {
+    return "catalog";
+  }
+  return "unknown";
+}
+
+export function assertCsvUploadKind(rawRows: Record<string, unknown>[], selectedKind: Exclude<CsvUploadKind, "unknown">): void {
+  const detectedKind = detectCsvUploadKind(rawRows);
+  if (detectedKind === selectedKind) {
+    return;
+  }
+
+  const labels: Record<CsvUploadKind, string> = {
+    catalog: "Catalog Upload",
+    packages: "Package Upload",
+    package_items: "Package Item Upload",
+    unknown: "an unrecognized file type"
+  };
+  const headers = Object.keys(rawRows[0] || {});
+  throw new Error(
+    `Upload stopped: you selected ${labels[selectedKind]}, but this CSV appears to be ${labels[detectedKind]}. ` +
+      `Choose ${detectedKind === "unknown" ? "the correct upload type" : labels[detectedKind]} and try again.\n` +
+      `Detected headers: ${headers.join(" | ") || "(none)"}`
+  );
 }
 
 export function mapPackageItems(rawRows: Record<string, unknown>[]): PackageItem[] {
   const mapped: PackageItem[] = [];
   const validationErrors: string[] = [];
   const detectedHeaders = Object.keys(rawRows[0] || {});
+  const seenRowByKey = new Map<string, number>();
 
   for (let index = 0; index < rawRows.length; index += 1) {
     const row = rawRows[index];
@@ -268,6 +391,21 @@ export function mapPackageItems(rawRows: Record<string, unknown>[]): PackageItem
       );
 
       const parsed = packageItemSchema.parse(canonicalRow);
+
+      const dedupeKey = [
+        parsed["Return Tracking Number"].trim().toUpperCase(),
+        parsed["Barcode (EAN/UPC)"].trim().toUpperCase(),
+        (parsed["Order Reference"] || "").trim().toUpperCase()
+      ].join("__");
+      const firstRow = seenRowByKey.get(dedupeKey);
+      if (firstRow !== undefined) {
+        validationErrors.push(
+          `Row ${index + 2}: duplicate Return Tracking Number + Barcode + Order Reference combination (first seen at row ${firstRow}). Add a distinct Order Reference or remove the duplicate row.`
+        );
+        continue;
+      }
+      seenRowByKey.set(dedupeKey, index + 2);
+
       mapped.push({
         returnTrackingNumber: parsed["Return Tracking Number"],
         carrier: parsed.Carrier,
@@ -339,7 +477,7 @@ export function mapPackages(rawRows: Record<string, unknown>[]): PackageSummary[
         expectedConditions: parsed["Expected Conditions"] || "",
         orderReferences: parsed["Order Reference(s)"] || "",
         earliestReturnRequested: parsed["Earliest Return Requested"] || "",
-        status: "received" as PackageStatus,
+        status: "open" as PackageStatus,
         updatedAt: new Date().toISOString()
       });
     } catch (error) {

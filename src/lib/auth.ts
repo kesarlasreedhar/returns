@@ -47,6 +47,7 @@ export function logout(): void {
   if (typeof window === "undefined") {
     return;
   }
+  fetch("/api/logout", { method: "POST" }).catch(() => undefined);
   window.localStorage.removeItem(AUTH_KEY);
 }
 

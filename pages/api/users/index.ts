@@ -2,9 +2,10 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { requireRole } from "@/lib/server/session";
 
 const createUserSchema = z.object({
-  requesterId: z.string().uuid(),
+  requesterId: z.string().uuid().optional(),
   name: z.string().min(1),
   email: z.string().email(),
   username: z.string().min(3),
@@ -12,21 +13,9 @@ const createUserSchema = z.object({
   role: z.enum(["admin", "seller", "processor"])
 });
 
-async function requireAdmin(requesterId: string): Promise<boolean> {
-  const { data, error } = await supabaseAdmin
-    .from("app_users")
-    .select("role")
-    .eq("id", requesterId)
-    .maybeSingle();
-
-  return !error && data?.role === "admin";
-}
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method === "GET") {
-    const requesterId = req.query.requesterId;
-    if (typeof requesterId !== "string" || !(await requireAdmin(requesterId))) {
-      res.status(403).json({ error: "Admin access required." });
+    if (!requireRole(req, res, ["admin"])) {
       return;
     }
 
@@ -59,12 +48,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return;
     }
 
-    const { requesterId, name, email, username, password, role } = parsed.data;
-    if (!(await requireAdmin(requesterId))) {
-      res.status(403).json({ error: "Admin access required." });
+    if (!requireRole(req, res, ["admin"])) {
       return;
     }
 
+    const { name, email, username, password, role } = parsed.data;
     const passwordHash = await bcrypt.hash(password, 10);
 
     const { data, error } = await supabaseAdmin

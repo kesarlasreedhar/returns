@@ -8,7 +8,7 @@ export type AppUser = {
   username?: string;
 };
 
-export type PackageStatus = "received" | "in_processing" | "processed" | "sent_back";
+export type PackageStatus = "open" | "scanned" | "ready_for_refund" | "review_for_refund" | "closed";
 
 export type PackageSummary = {
   id?: string;

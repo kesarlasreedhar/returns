@@ -7,10 +7,11 @@ import { getPackageItems, getPackages } from "@/lib/storage";
 import { AppUser } from "@/types/domain";
 
 type Stats = {
-  totalReceived: number;
-  processing: number;
-  processed: number;
-  sentBack: number;
+  open: number;
+  scanned: number;
+  readyForRefund: number;
+  reviewForRefund: number;
+  closed: number;
   mismatches: number;
 };
 
@@ -18,10 +19,11 @@ export default function DashboardPage(): JSX.Element | null {
   const router = useRouter();
   const [user, setUser] = useState<AppUser | null>(null);
   const [stats, setStats] = useState<Stats>({
-    totalReceived: 0,
-    processing: 0,
-    processed: 0,
-    sentBack: 0,
+    open: 0,
+    scanned: 0,
+    readyForRefund: 0,
+    reviewForRefund: 0,
+    closed: 0,
     mismatches: 0
   });
 
@@ -37,10 +39,11 @@ export default function DashboardPage(): JSX.Element | null {
       const packages = await getPackages();
       const items = await getPackageItems();
       setStats({
-        totalReceived: packages.filter((pkg) => pkg.status === "received").length,
-        processing: packages.filter((pkg) => pkg.status === "in_processing").length,
-        processed: packages.filter((pkg) => pkg.status === "processed").length,
-        sentBack: packages.filter((pkg) => pkg.status === "sent_back").length,
+        open: packages.filter((pkg) => pkg.status === "open").length,
+        scanned: packages.filter((pkg) => pkg.status === "scanned").length,
+        readyForRefund: packages.filter((pkg) => pkg.status === "ready_for_refund").length,
+        reviewForRefund: packages.filter((pkg) => pkg.status === "review_for_refund").length,
+        closed: packages.filter((pkg) => pkg.status === "closed").length,
         mismatches: items.filter((item) => item.actualCondition && item.actualCondition !== item.expectedCondition).length
       });
     }
@@ -61,10 +64,11 @@ export default function DashboardPage(): JSX.Element | null {
       }}
     >
       <div className="stats-grid">
-        <StatCard label="Received" value={stats.totalReceived} />
-        <StatCard label="In Processing" value={stats.processing} />
-        <StatCard label="Processed" value={stats.processed} />
-        <StatCard label="Sent Back" value={stats.sentBack} />
+        <StatCard label="Open" value={stats.open} />
+        <StatCard label="Scanned" value={stats.scanned} />
+        <StatCard label="Ready for Refund" value={stats.readyForRefund} />
+        <StatCard label="Review for Refund" value={stats.reviewForRefund} />
+        <StatCard label="Closed" value={stats.closed} />
         <StatCard label="Condition Mismatch" value={stats.mismatches} />
       </div>
       {user.role === "admin" || user.role === "processor" ? (

@@ -3,24 +3,18 @@ import { useRouter } from "next/router";
 import { getCurrentUser } from "@/lib/auth";
 import {
   getCatalog,
+  evaluatePackageRefundStatus,
   getInspectionPhotos,
   getPackageItems,
   getPackages,
+  markPackageScanned,
   saveInspectionPhoto,
-  updateItemCondition,
-  updatePackageStatus
+  updateItemCondition
 } from "@/lib/storage";
 import { AppUser, CatalogProduct, InspectionPhoto, PackageItem, PackageSummary } from "@/types/domain";
+import { findKnownTrackingNumber, startZxingVideoScan, stopZxingVideoScan, ZxingControls } from "@/lib/zxingScanner";
 
 type WorkflowStep = "package" | "inspect" | "evidence" | "complete";
-
-type BarcodeDetectorLike = {
-  detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>>;
-};
-
-type WindowWithBarcodeDetector = typeof window & {
-  BarcodeDetector?: new () => BarcodeDetectorLike;
-};
 
 const conditions = ["New", "Opened", "Damaged"];
 
@@ -45,6 +39,7 @@ export default function MobileScannerPage(): JSX.Element | null {
   const [trackingScanNotice, setTrackingScanNotice] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const trackingVideoRef = useRef<HTMLVideoElement | null>(null);
+  const trackingScannerControlsRef = useRef<ZxingControls | null>(null);
 
   useEffect(() => {
     const currentUser = getCurrentUser();
@@ -97,7 +92,10 @@ export default function MobileScannerPage(): JSX.Element | null {
         return;
       }
 
-      setActivePackage(packageToInspect);
+      if (packageToInspect.status === "open") {
+        await markPackageScanned(packageToInspect.returnTrackingNumber);
+      }
+      setActivePackage(packageToInspect.status === "open" ? { ...packageToInspect, status: "scanned" } : packageToInspect);
       setItems(packageItems);
       setPhotosByItemId(inspectionPhotos.reduce<Record<string, InspectionPhoto>>((result, photo) => {
         if (!result[photo.packageItemId]) result[photo.packageItemId] = photo;
@@ -126,15 +124,15 @@ export default function MobileScannerPage(): JSX.Element | null {
   }
 
   async function saveInspection(): Promise<void> {
-    if (!selectedItem || !user || !activePackage) {
+    if (!selectedItem?.id || !user || !activePackage) {
       return;
     }
 
     setIsSaving(true);
     setError("");
     try {
-      await updateItemCondition(activePackage.returnTrackingNumber, selectedItem.barcode, condition);
-      await updatePackageStatus(activePackage.returnTrackingNumber, "in_processing");
+      await updateItemCondition(selectedItem.id, condition);
+      const refundStatus = await evaluatePackageRefundStatus(activePackage.returnTrackingNumber);
       if (evidenceDataUrl && selectedItem.id) {
         await saveInspectionPhoto(selectedItem.id, evidenceDataUrl, user.email);
       }
@@ -142,7 +140,7 @@ export default function MobileScannerPage(): JSX.Element | null {
       const updatedItems = items.map((item) => item === selectedItem ? { ...item, actualCondition: condition } : item);
       setItems(updatedItems);
       const remainingItem = updatedItems.find((item) => !item.actualCondition) || null;
-      setNotice(`${selectedItem.barcode} saved as ${condition}.`);
+      setNotice(`${selectedItem.barcode} saved as ${condition}.${refundStatus === "scanned" ? " Package remains scanned until all items are inspected." : ` Package is ${refundStatus === "ready_for_refund" ? "ready for refund" : "ready for refund review"}.`}`);
       setEvidenceDataUrl("");
 
       if (remainingItem) {
@@ -172,9 +170,9 @@ export default function MobileScannerPage(): JSX.Element | null {
     }
     setIsSaving(true);
     try {
-      await updatePackageStatus(activePackage.returnTrackingNumber, "processed");
-      setNotice(`${activePackage.returnTrackingNumber} is processed and synchronized.`);
-      setActivePackage({ ...activePackage, status: "processed" });
+      const refundStatus = await evaluatePackageRefundStatus(activePackage.returnTrackingNumber);
+      setNotice(`${activePackage.returnTrackingNumber} is ${refundStatus === "ready_for_refund" ? "ready for refund" : "ready for refund review"}.`);
+      setActivePackage({ ...activePackage, status: refundStatus });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to complete this package.");
     } finally {
@@ -187,25 +185,6 @@ export default function MobileScannerPage(): JSX.Element | null {
     if (!file) return;
     setEvidenceDataUrl(await fileToDataUrl(file));
     setError("");
-  }
-
-  async function saveEvidence(): Promise<void> {
-    if (!selectedItem?.id || !user || !evidenceDataUrl) {
-      setError("Select an item and add a photo before saving evidence.");
-      return;
-    }
-    setIsSaving(true);
-    setError("");
-    try {
-      await saveInspectionPhoto(selectedItem.id, evidenceDataUrl, user.email);
-      setEvidenceDataUrl("");
-      setNotice(`Evidence saved for ${selectedItem.barcode}.`);
-      setStep("inspect");
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Unable to save evidence.");
-    } finally {
-      setIsSaving(false);
-    }
   }
 
   function goToStep(nextStep: WorkflowStep): void {
@@ -245,16 +224,27 @@ export default function MobileScannerPage(): JSX.Element | null {
   }
 
   async function startTrackingCamera(): Promise<void> {
+    const video = trackingVideoRef.current;
+    if (!video) {
+      return;
+    }
+
     try {
       setError("");
       setTrackingScanNotice("");
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-      if (!trackingVideoRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      trackingVideoRef.current.srcObject = stream;
-      await trackingVideoRef.current.play();
+      const { BarcodeFormat } = await import("@zxing/library");
+      const controls = await startZxingVideoScan(video, [BarcodeFormat.CODE_128, BarcodeFormat.QR_CODE, BarcodeFormat.DATA_MATRIX], async (text) => {
+        const tracking = findKnownTrackingNumber(text, await getPackages());
+        if (!tracking) {
+          setTrackingScanNotice(`Ignored '${text}': it does not match an uploaded package. Aim at the package tracking barcode.`);
+          return;
+        }
+        setTrackingInput(tracking);
+        stopTrackingCamera();
+        setTrackingScanNotice("Barcode detected. Loading package...");
+        void loadPackage(tracking);
+      });
+      trackingScannerControlsRef.current = controls;
       setTrackingCameraOn(true);
     } catch {
       setError("Camera access was unavailable. Enter the tracking number manually.");
@@ -262,34 +252,9 @@ export default function MobileScannerPage(): JSX.Element | null {
   }
 
   function stopTrackingCamera(): void {
-    const stream = trackingVideoRef.current?.srcObject as MediaStream | null;
-    stream?.getTracks().forEach((track) => track.stop());
-    if (trackingVideoRef.current) trackingVideoRef.current.srcObject = null;
+    stopZxingVideoScan(trackingScannerControlsRef.current, trackingVideoRef.current);
+    trackingScannerControlsRef.current = null;
     setTrackingCameraOn(false);
-  }
-
-  async function scanTrackingBarcode(): Promise<void> {
-    const video = trackingVideoRef.current;
-    const BarcodeDetectorConstructor = (window as WindowWithBarcodeDetector).BarcodeDetector;
-    if (!video || !BarcodeDetectorConstructor) {
-      setTrackingScanNotice("Barcode detection is not supported by this browser. Enter the tracking number manually.");
-      return;
-    }
-    try {
-      const detector = new BarcodeDetectorConstructor();
-      const codes = await detector.detect(video);
-      const tracking = codes[0]?.rawValue?.trim();
-      if (!tracking) {
-        setTrackingScanNotice("No barcode found. Hold the label steady and try again.");
-        return;
-      }
-      setTrackingInput(tracking);
-      stopTrackingCamera();
-      setTrackingScanNotice("Barcode detected. Loading package...");
-      void loadPackage(tracking);
-    } catch {
-      setTrackingScanNotice("Unable to read the barcode. Try again or enter it manually.");
-    }
   }
 
   function captureEvidence(): void {
@@ -351,7 +316,6 @@ export default function MobileScannerPage(): JSX.Element | null {
           <video className="mobile-camera mobile-tracking-camera" ref={trackingVideoRef} muted playsInline />
           {trackingCameraOn ? (
             <div className="mobile-button-row">
-              <button className="mobile-secondary-button" type="button" onClick={() => void scanTrackingBarcode()}>Scan Barcode</button>
               <button className="mobile-secondary-button" type="button" onClick={stopTrackingCamera}>Stop Camera</button>
             </div>
           ) : <button className="mobile-secondary-button" type="button" onClick={() => void startTrackingCamera()}>Open Camera Scanner</button>}
@@ -395,15 +359,15 @@ export default function MobileScannerPage(): JSX.Element | null {
             // eslint-disable-next-line @next/next/no-img-element
             <img className="mobile-evidence-preview" src={evidenceDataUrl} alt="Inspection evidence preview" />
           ) : null}
-          <button className="mobile-primary-button" type="button" onClick={() => void saveEvidence()} disabled={!evidenceDataUrl || !selectedItem || isSaving}>{isSaving ? "Saving..." : "Save Evidence"}</button>
-          <button className="mobile-secondary-button" type="button" onClick={() => goToStep("complete")}>Continue to Review</button>
+          <p className="hint-text">The photo is saved together with the condition when you tap &quot;Save and Next&quot; on the Inspect step.</p>
+          <button className="mobile-primary-button" type="button" onClick={() => goToStep("inspect")} disabled={!selectedItem}>Done — Return to Inspect</button>
         </section>
       ) : null}
 
       {step === "complete" && activePackage ? (
         <section className="mobile-scanner-stage mobile-complete-stage">
           <p className="mobile-step-label">Step 4 of 4</p>
-          <h2>{activePackage.status === "processed" ? "Package processed" : "Ready to complete"}</h2>
+          <h2>{activePackage.status === "ready_for_refund" ? "Ready for refund" : activePackage.status === "review_for_refund" ? "Review for refund" : "Ready to finalize"}</h2>
           <p>{completedCount} of {items.length} items have been recorded.</p>
           <div className="mobile-completed-package-details">
             <p><strong>Tracking:</strong> {activePackage.returnTrackingNumber}</p>
@@ -434,8 +398,8 @@ export default function MobileScannerPage(): JSX.Element | null {
               );
             })}
           </div>
-          {activePackage.status !== "processed" ? <button className="mobile-primary-button" type="button" onClick={() => void completePackage()} disabled={isSaving}>{isSaving ? "Syncing..." : "Mark Package Processed"}</button> : null}
-          {activePackage.status !== "processed" && completedCount !== items.length ? <button className="mobile-secondary-button" type="button" onClick={() => goToStep("inspect")}>Return to Items</button> : null}
+          {!(["ready_for_refund", "review_for_refund", "closed"] as string[]).includes(activePackage.status) ? <button className="mobile-primary-button" type="button" onClick={() => void completePackage()} disabled={isSaving}>{isSaving ? "Syncing..." : "Finalize Refund Status"}</button> : null}
+          {!(["ready_for_refund", "review_for_refund", "closed"] as string[]).includes(activePackage.status) && completedCount !== items.length ? <button className="mobile-secondary-button" type="button" onClick={() => goToStep("inspect")}>Return to Items</button> : null}
           <button className="mobile-secondary-button" type="button" onClick={resetScanner}>Scan Another Package</button>
         </section>
       ) : null}

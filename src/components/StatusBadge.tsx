@@ -5,10 +5,11 @@ type Props = {
 };
 
 const labels: Record<PackageStatus, string> = {
-  received: "Received",
-  in_processing: "In Processing",
-  processed: "Processed",
-  sent_back: "Sent Back"
+  open: "Open",
+  scanned: "Scanned",
+  ready_for_refund: "Ready for Refund",
+  review_for_refund: "Review for Refund",
+  closed: "Closed"
 };
 
 export function StatusBadge({ status }: Props): JSX.Element {

@@ -12,10 +12,11 @@ type ReportData = {
   mismatches: number;
   damagedObserved: number;
   byStatus: {
-    received: number;
-    inProcessing: number;
-    processed: number;
-    sentBack: number;
+    open: number;
+    scanned: number;
+    readyForRefund: number;
+    reviewForRefund: number;
+    closed: number;
   };
 };
 
@@ -32,7 +33,7 @@ export default function ReportsPage(): JSX.Element | null {
     totalItems: 0,
     mismatches: 0,
     damagedObserved: 0,
-    byStatus: { received: 0, inProcessing: 0, processed: 0, sentBack: 0 }
+    byStatus: { open: 0, scanned: 0, readyForRefund: 0, reviewForRefund: 0, closed: 0 }
   });
   const [packages, setPackages] = useState<ReturnType<typeof getPackages> extends Promise<infer T> ? T : never>([]);
 
@@ -69,10 +70,11 @@ export default function ReportsPage(): JSX.Element | null {
         mismatches: itemRows.filter((item) => item.actualCondition && item.actualCondition !== item.expectedCondition).length,
         damagedObserved: itemRows.filter((item) => item.actualCondition === "Damaged").length,
         byStatus: {
-          received: pkgs.filter((pkg) => pkg.status === "received").length,
-          inProcessing: pkgs.filter((pkg) => pkg.status === "in_processing").length,
-          processed: pkgs.filter((pkg) => pkg.status === "processed").length,
-          sentBack: pkgs.filter((pkg) => pkg.status === "sent_back").length
+          open: pkgs.filter((pkg) => pkg.status === "open").length,
+          scanned: pkgs.filter((pkg) => pkg.status === "scanned").length,
+          readyForRefund: pkgs.filter((pkg) => pkg.status === "ready_for_refund").length,
+          reviewForRefund: pkgs.filter((pkg) => pkg.status === "review_for_refund").length,
+          closed: pkgs.filter((pkg) => pkg.status === "closed").length
         }
       });
     }
@@ -136,27 +138,33 @@ export default function ReportsPage(): JSX.Element | null {
         <tbody>
           <tr>
             <td>
-              <StatusBadge status="received" />
+              <StatusBadge status="open" />
             </td>
-            <td>{report.byStatus.received}</td>
+            <td>{report.byStatus.open}</td>
           </tr>
           <tr>
             <td>
-              <StatusBadge status="in_processing" />
+              <StatusBadge status="scanned" />
             </td>
-            <td>{report.byStatus.inProcessing}</td>
+            <td>{report.byStatus.scanned}</td>
           </tr>
           <tr>
             <td>
-              <StatusBadge status="processed" />
+              <StatusBadge status="ready_for_refund" />
             </td>
-            <td>{report.byStatus.processed}</td>
+            <td>{report.byStatus.readyForRefund}</td>
           </tr>
           <tr>
             <td>
-              <StatusBadge status="sent_back" />
+              <StatusBadge status="review_for_refund" />
             </td>
-            <td>{report.byStatus.sentBack}</td>
+            <td>{report.byStatus.reviewForRefund}</td>
+          </tr>
+          <tr>
+            <td>
+              <StatusBadge status="closed" />
+            </td>
+            <td>{report.byStatus.closed}</td>
           </tr>
         </tbody>
       </table>

@@ -65,10 +65,10 @@ export default function ReboxingPage(): JSX.Element | null {
     >
       <section className="panel-grid two-column">
         <article className="panel">
-          <h2>Re-scan Processed Package</h2>
-          <p className="hint-text">After two weeks, scan processed package and assign it to a new big box shipment.</p>
+          <h2>Re-scan Closed Package</h2>
+          <p className="hint-text">After two weeks, scan a closed package and assign it to a new big box shipment.</p>
           <form onSubmit={(event) => void onSubmit(event)}>
-            <label htmlFor="returnTrackingNumber">Processed Package Tracking</label>
+            <label htmlFor="returnTrackingNumber">Closed Package Tracking</label>
             <input
               id="returnTrackingNumber"
               value={returnTrackingNumber}

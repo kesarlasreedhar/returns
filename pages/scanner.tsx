@@ -4,22 +4,17 @@ import { AppLayout } from "@/components/AppLayout";
 import { getCurrentUser, logout } from "@/lib/auth";
 import {
   getCatalog,
+  evaluatePackageRefundStatus,
   getInspectionPhotos,
   getPackageItems,
   getPackages,
+  markPackageScanned,
   saveInspectionPhoto,
   updateItemCondition,
   updatePackageStatus
 } from "@/lib/storage";
 import { AppUser, CatalogProduct, InspectionPhoto, PackageItem, PackageSummary } from "@/types/domain";
-
-function normalizeBarcode(value: string): string {
-  return value.trim().toUpperCase().replace(/[\s-]/g, "");
-}
-
-function normalizeTrackingNumber(value: string): string {
-  return normalizeBarcode(value);
-}
+import { findKnownTrackingNumber, normalizeBarcode, normalizeTrackingNumber, startZxingVideoScan, stopZxingVideoScan } from "@/lib/zxingScanner";
 
 export default function ScannerPage(): JSX.Element | null {
   const router = useRouter();
@@ -41,6 +36,7 @@ export default function ScannerPage(): JSX.Element | null {
   const [photoByItemId, setPhotoByItemId] = useState<Record<string, InspectionPhoto>>({});
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState("");
+  const [isLoadingTracking, setIsLoadingTracking] = useState(false);
   const [barcodeCameraOn, setBarcodeCameraOn] = useState(false);
   const [barcodeCameraError, setBarcodeCameraError] = useState("");
   const [trackingCameraOn, setTrackingCameraOn] = useState(false);
@@ -89,38 +85,49 @@ export default function ScannerPage(): JSX.Element | null {
 
   const refreshTrackingContext = useCallback(
     async (tracking: string): Promise<void> => {
-      const [items, packages, photos] = await Promise.all([getPackageItems(), getPackages(), getInspectionPhotos()]);
-      const normalizedTracking = normalizeTrackingNumber(tracking);
-      const filtered = items.filter((item) => normalizeTrackingNumber(item.returnTrackingNumber) === normalizedTracking);
-      setItemsForTracking(filtered);
+      setIsLoadingTracking(true);
+      try {
+        const [items, packages, photos] = await Promise.all([getPackageItems(), getPackages(), getInspectionPhotos()]);
+        const normalizedTracking = normalizeTrackingNumber(tracking);
+        const filtered = items.filter((item) => normalizeTrackingNumber(item.returnTrackingNumber) === normalizedTracking);
+        setItemsForTracking(filtered);
 
-      setSelectedRows(
-        filtered.reduce<Record<string, boolean>>((acc, item) => {
-          acc[makeRowKey(item)] = false;
-          return acc;
-        }, {})
-      );
+        setSelectedRows(
+          filtered.reduce<Record<string, boolean>>((acc, item) => {
+            acc[makeRowKey(item)] = false;
+            return acc;
+          }, {})
+        );
 
-      const pkg = packages.find((pkgItem) => normalizeTrackingNumber(pkgItem.returnTrackingNumber) === normalizedTracking) || null;
-      setActivePackage(pkg);
+        const pkg = packages.find((pkgItem) => normalizeTrackingNumber(pkgItem.returnTrackingNumber) === normalizedTracking) || null;
+        setActivePackage(pkg);
 
-      if (pkg?.status === "processed") {
-        setStatusNotice("This package is already scanned and marked as processed. Showing saved details and images.");
-      } else if (pkg) {
-        setStatusNotice(`Package ${pkg.returnTrackingNumber} loaded. ${filtered.length} item${filtered.length === 1 ? "" : "s"} found.`);
-      } else {
-        setStatusNotice(`No package found for ${tracking}. Check the tracking number or scan the long barcode below 'TRACKING #'.`);
-      }
-
-      const photoMap: Record<string, InspectionPhoto> = {};
-      for (const photo of photos) {
-        if (!photoMap[photo.packageItemId]) {
-          photoMap[photo.packageItemId] = photo;
+        if (pkg?.status === "open") {
+          await markPackageScanned(pkg.returnTrackingNumber);
+          setActivePackage({ ...pkg, status: "scanned" });
+          setStatusNotice(`Package ${pkg.returnTrackingNumber} loaded and marked as scanned. ${filtered.length} item${filtered.length === 1 ? "" : "s"} found.`);
+        } else if (pkg?.status === "closed") {
+          setStatusNotice("This package is closed. Showing saved details and images.");
+        } else if (pkg && filtered.length === 0) {
+          setStatusNotice(`Package ${pkg.returnTrackingNumber} is loaded, but has no Package Item records. Upload Package Items before inspection.`);
+        } else if (pkg) {
+          setStatusNotice(`Package ${pkg.returnTrackingNumber} loaded. ${filtered.length} item${filtered.length === 1 ? "" : "s"} found.`);
+        } else {
+          setStatusNotice(`No package found for ${tracking}. Check the tracking number or scan the long barcode below 'TRACKING #'.`);
         }
-      }
-      setPhotoByItemId(photoMap);
 
-      autoFocusNextItem(filtered);
+        const photoMap: Record<string, InspectionPhoto> = {};
+        for (const photo of photos) {
+          if (!photoMap[photo.packageItemId]) {
+            photoMap[photo.packageItemId] = photo;
+          }
+        }
+        setPhotoByItemId(photoMap);
+
+        autoFocusNextItem(filtered);
+      } finally {
+        setIsLoadingTracking(false);
+      }
     },
     [autoFocusNextItem]
   );
@@ -161,18 +168,14 @@ export default function ScannerPage(): JSX.Element | null {
     };
   }, []);
 
-  function findKnownTrackingNumber(value: string, packages: PackageSummary[]): string | null {
-    const scanned = normalizeTrackingNumber(value);
-    const exact = packages.find((pkg) => normalizeTrackingNumber(pkg.returnTrackingNumber) === scanned);
-    if (exact) {
-      return exact.returnTrackingNumber;
+  async function loadPackage(): Promise<void> {
+    const tracking = normalizeTrackingNumber(trackingInput);
+    if (!tracking) {
+      setStatusNotice("Enter or scan a tracking number first.");
+      return;
     }
-
-    const embedded = packages.find((pkg) => {
-      const tracking = normalizeTrackingNumber(pkg.returnTrackingNumber);
-      return tracking.length >= 12 && scanned.includes(tracking);
-    });
-    return embedded?.returnTrackingNumber || null;
+    setTrackingInput(tracking);
+    await refreshTrackingContext(tracking);
   }
 
   function findMatchingItem(value: string): PackageItem | null {
@@ -226,31 +229,12 @@ export default function ScannerPage(): JSX.Element | null {
 
     try {
       setBarcodeCameraError("");
-      const [{ BrowserMultiFormatReader }, { BarcodeFormat }] = await Promise.all([import("@zxing/browser"), import("@zxing/library")]);
-      const reader = new BrowserMultiFormatReader();
-      reader.possibleFormats = [
-        BarcodeFormat.CODE_128,
-        BarcodeFormat.EAN_13,
-        BarcodeFormat.EAN_8,
-        BarcodeFormat.UPC_A,
-        BarcodeFormat.UPC_E,
-        BarcodeFormat.QR_CODE
-      ];
-      const controls = await reader.decodeFromConstraints(
-        {
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
-          },
-          audio: false
-        },
+      const { BarcodeFormat } = await import("@zxing/library");
+      const controls = await startZxingVideoScan(
         video,
-        (result) => {
-          if (!result) {
-            return;
-          }
-          applyScannedBarcode(result.getText());
+        [BarcodeFormat.CODE_128, BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E, BarcodeFormat.QR_CODE],
+        (text) => {
+          applyScannedBarcode(text);
           stopBarcodeCamera();
         }
       );
@@ -263,13 +247,8 @@ export default function ScannerPage(): JSX.Element | null {
   }
 
   function stopBarcodeCamera(): void {
-    barcodeScannerControlsRef.current?.stop();
+    stopZxingVideoScan(barcodeScannerControlsRef.current, barcodeVideoRef.current);
     barcodeScannerControlsRef.current = null;
-    const video = barcodeVideoRef.current;
-    if (video?.srcObject) {
-      (video.srcObject as MediaStream).getTracks().forEach((track) => track.stop());
-      video.srcObject = null;
-    }
     setBarcodeCameraOn(false);
   }
 
@@ -281,35 +260,18 @@ export default function ScannerPage(): JSX.Element | null {
 
     try {
       setTrackingCameraError("");
-      const [{ BrowserMultiFormatReader }, { BarcodeFormat }] = await Promise.all([import("@zxing/browser"), import("@zxing/library")]);
-      const reader = new BrowserMultiFormatReader();
-      reader.possibleFormats = [BarcodeFormat.CODE_128, BarcodeFormat.QR_CODE, BarcodeFormat.DATA_MATRIX];
-      const controls = await reader.decodeFromConstraints(
-        {
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
-          },
-          audio: false
-        },
-        video,
-        async (result) => {
-          if (!result) {
-            return;
-          }
-
-          const tracking = findKnownTrackingNumber(result.getText(), await getPackages());
-          if (!tracking) {
-            setTrackingCameraError(`Ignored '${result.getText()}': it does not match an uploaded package. Aim at the package tracking barcode.`);
-            return;
-          }
-
-          setTrackingInput(tracking);
-          setScanMessage(`Tracking ${tracking} scanned.`);
-          stopTrackingCamera();
+      const { BarcodeFormat } = await import("@zxing/library");
+      const controls = await startZxingVideoScan(video, [BarcodeFormat.CODE_128, BarcodeFormat.QR_CODE, BarcodeFormat.DATA_MATRIX], async (text) => {
+        const tracking = findKnownTrackingNumber(text, await getPackages());
+        if (!tracking) {
+          setTrackingCameraError(`Ignored '${text}': it does not match an uploaded package. Aim at the package tracking barcode.`);
+          return;
         }
-      );
+
+        setTrackingInput(tracking);
+        setScanMessage(`Tracking ${tracking} scanned.`);
+        stopTrackingCamera();
+      });
       trackingScannerControlsRef.current = controls;
       setTrackingCameraOn(true);
     } catch (error) {
@@ -319,13 +281,8 @@ export default function ScannerPage(): JSX.Element | null {
   }
 
   function stopTrackingCamera(): void {
-    trackingScannerControlsRef.current?.stop();
+    stopZxingVideoScan(trackingScannerControlsRef.current, trackingVideoRef.current);
     trackingScannerControlsRef.current = null;
-    const video = trackingVideoRef.current;
-    if (video?.srcObject) {
-      (video.srcObject as MediaStream).getTracks().forEach((track) => track.stop());
-      video.srcObject = null;
-    }
     setTrackingCameraOn(false);
   }
 
@@ -431,13 +388,18 @@ export default function ScannerPage(): JSX.Element | null {
       const mismatch = expectedCondition && expectedCondition !== actualCondition;
       const needsEvidence = actualCondition === "Damaged" || mismatch;
 
-      if (needsEvidence && (!evidenceDataUrl || !current?.id)) {
+      if (!current?.id) {
+        setScanMessage("This barcode is not part of the loaded package.");
+        return;
+      }
+
+      if (needsEvidence && !evidenceDataUrl) {
         setScanMessage("Upload or capture evidence image for Damaged or mismatch condition before updating.");
         return;
       }
 
-      await updateItemCondition(tracking, barcode, actualCondition);
-      await updatePackageStatus(tracking, "in_processing");
+      await updateItemCondition(current.id, actualCondition);
+      const refundStatus = await evaluatePackageRefundStatus(tracking);
 
       if (evidenceDataUrl && current?.id && user) {
         await saveInspectionPhoto(current.id, evidenceDataUrl, user.email);
@@ -447,7 +409,7 @@ export default function ScannerPage(): JSX.Element | null {
       }
 
       await refreshTrackingContext(tracking);
-      setScanMessage("Item updated and evidence saved.");
+      setScanMessage(refundStatus === "scanned" ? "Item updated. Package remains scanned until all items are inspected." : `Item updated. Package is ${refundStatus === "ready_for_refund" ? "ready for refund" : "ready for refund review"}.`);
     } catch (error) {
       const message = getErrorMessage(error, "Failed to update item or save evidence.");
       setScanMessage(message);
@@ -469,14 +431,14 @@ export default function ScannerPage(): JSX.Element | null {
         await saveInspectionPhoto(current.id, evidenceDataUrl, user.email);
       }
 
-      await updatePackageStatus(tracking, "processed");
+      const refundStatus = await evaluatePackageRefundStatus(tracking);
       await refreshTrackingContext(tracking);
       if (evidenceDataUrl && current?.id) {
-        setScanMessage("Package marked as processed and evidence saved.");
+        setScanMessage(`Package ${refundStatus === "ready_for_refund" ? "is ready for refund" : "needs refund review"}; evidence saved.`);
       } else {
-        setScanMessage("Package marked as processed.");
+        setScanMessage(`Package ${refundStatus === "ready_for_refund" ? "is ready for refund" : "needs refund review"}.`);
       }
-      setProcessedNotice(`Saved: package ${tracking} is now processed.`);
+      setProcessedNotice(`Saved: package ${tracking} is now ${refundStatus === "ready_for_refund" ? "Ready for Refund" : refundStatus === "review_for_refund" ? "Review for Refund" : "Scanned"}.`);
       setEvidenceDataUrl("");
       setEvidencePreview("");
       stopEvidenceCamera();
@@ -516,12 +478,14 @@ export default function ScannerPage(): JSX.Element | null {
     }
 
     for (const item of selected) {
-      await updateItemCondition(tracking, item.barcode, actualCondition);
+      if (item.id) {
+        await updateItemCondition(item.id, actualCondition);
+      }
     }
 
-    await updatePackageStatus(tracking, "in_processing");
+    const refundStatus = await evaluatePackageRefundStatus(tracking);
     await refreshTrackingContext(tracking);
-    setScanMessage(`Updated ${selected.length} selected items.`);
+    setScanMessage(`Updated ${selected.length} selected items. Package is ${refundStatus === "scanned" ? "still scanned" : refundStatus === "ready_for_refund" ? "ready for refund" : "ready for refund review"}.`);
   }
 
   async function applyConditionToAll(): Promise<void> {
@@ -537,12 +501,14 @@ export default function ScannerPage(): JSX.Element | null {
     }
 
     for (const item of itemsForTracking) {
-      await updateItemCondition(tracking, item.barcode, actualCondition);
+      if (item.id) {
+        await updateItemCondition(item.id, actualCondition);
+      }
     }
 
-    await updatePackageStatus(tracking, "in_processing");
+    const refundStatus = await evaluatePackageRefundStatus(tracking);
     await refreshTrackingContext(tracking);
-    setScanMessage(`Updated all ${itemsForTracking.length} items.`);
+    setScanMessage(`Updated all ${itemsForTracking.length} items. Package is ${refundStatus === "ready_for_refund" ? "ready for refund" : "ready for refund review"}.`);
   }
 
   if (!user) {
@@ -574,6 +540,11 @@ export default function ScannerPage(): JSX.Element | null {
             onChange={(event) => setTrackingInput(event.target.value)}
             onBlur={() => setTrackingInput((value) => normalizeTrackingNumber(value))}
           />
+          <div className="action-row">
+            <button className="btn-primary" type="button" onClick={() => void loadPackage()} disabled={isLoadingTracking}>
+              {isLoadingTracking ? "Loading..." : "Load Package"}
+            </button>
+          </div>
           <div className="barcode-scan-box">
             <div className="action-row">
               {!trackingCameraOn ? (
@@ -667,7 +638,7 @@ export default function ScannerPage(): JSX.Element | null {
             <button className="btn-secondary" type="button" onClick={() => void applyConditionToSelected()}>Apply to Selected</button>
             <button className="btn-secondary" type="button" onClick={() => void applyConditionToAll()}>Apply to All</button>
             <button className="btn-secondary" type="button" onClick={movePackageToProcessed} disabled={isMarkingProcessed}>
-              {isMarkingProcessed ? "Saving..." : "Mark Package Processed"}
+              {isMarkingProcessed ? "Saving..." : "Finalize Refund Status"}
             </button>
           </div>
         </article>

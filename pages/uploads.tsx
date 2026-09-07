@@ -1,12 +1,10 @@
 import { ChangeEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { AppLayout } from "@/components/AppLayout";
-import { parseCsv, mapCatalog, mapPackageItems, mapPackages } from "@/lib/csv";
+import { parseReturnsWorkbook } from "@/lib/csv";
 import { getCurrentUser, logout } from "@/lib/auth";
-import { getPackageItems, getPackages, getUploadBatches, replacePackageItems, replacePackages, upsertCatalogRows } from "@/lib/storage";
+import { getPackageItems, getPackages, getUploadBatches, importReturnsWorkbook } from "@/lib/storage";
 import { AppUser } from "@/types/domain";
-
-type UploadKind = "" | "catalog" | "packages" | "package_items";
 
 type UploadStats = {
   uploadedRows: number;
@@ -20,7 +18,6 @@ export default function UploadsPage(): JSX.Element | null {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
-  const [uploadKind, setUploadKind] = useState<UploadKind>("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [stats, setStats] = useState<UploadStats>({
     uploadedRows: 0,
@@ -49,7 +46,7 @@ export default function UploadsPage(): JSX.Element | null {
       setBatches(recent);
       setStats({
         uploadedRows: recent.reduce((sum, batch) => sum + batch.rowCount, 0),
-        processedPackages: pkgs.filter((pkg) => pkg.status === "processed").length,
+        processedPackages: pkgs.filter((pkg) => pkg.status === "ready_for_refund" || pkg.status === "review_for_refund").length,
         processedItems: items.filter((item) => Boolean(item.actualCondition)).length
       });
     }
@@ -61,8 +58,8 @@ export default function UploadsPage(): JSX.Element | null {
   }
 
   async function handleUpload(): Promise<void> {
-    if (!selectedFile || !user || !uploadKind) {
-      setError("Select upload type and choose a CSV file.");
+    if (!selectedFile || !user) {
+      setError("Choose the Returns Operations Excel workbook.");
       return;
     }
 
@@ -70,17 +67,9 @@ export default function UploadsPage(): JSX.Element | null {
     setMessage("");
 
     try {
-      const rows = await parseCsv(selectedFile);
-      if (uploadKind === "catalog") {
-        await upsertCatalogRows(mapCatalog(rows), user.email, selectedFile.name);
-      }
-      if (uploadKind === "packages") {
-        await replacePackages(mapPackages(rows), user.email, selectedFile.name);
-      }
-      if (uploadKind === "package_items") {
-        await replacePackageItems(mapPackageItems(rows), user.email, selectedFile.name);
-      }
-      setMessage(`${uploadKind} uploaded successfully.`);
+      const workbook = await parseReturnsWorkbook(selectedFile);
+      await importReturnsWorkbook(workbook, user.email, selectedFile.name);
+      setMessage(`Workbook uploaded successfully: ${workbook.catalog.length} catalog products, ${workbook.packages.length} packages, and ${workbook.packageItems.length} package items.`);
       setSelectedFile(null);
       setRefreshKey((v) => v + 1);
     } catch (uploadError) {
@@ -103,19 +92,11 @@ export default function UploadsPage(): JSX.Element | null {
     >
       <section className="panel-grid single-column">
         <article className="panel">
-          <h2>Upload Section</h2>
-          <p>Select upload type, pick a CSV file, and submit.</p>
+          <h2>Returns Operations Workbook</h2>
+          <p>Upload one Excel workbook with sheets in this order: Catalog, Packages, Package Items.</p>
 
-          <label htmlFor="uploadKind">Upload Type</label>
-          <select id="uploadKind" value={uploadKind} onChange={(event) => setUploadKind(event.target.value as UploadKind)}>
-            <option value="">-- Select Upload Type --</option>
-            <option value="packages">Package Upload</option>
-            <option value="package_items">Package Item Upload</option>
-            <option value="catalog">Catalog Upload</option>
-          </select>
-
-          <label htmlFor="uploadFile">CSV File</label>
-          <input id="uploadFile" type="file" accept=".csv,text/csv" onChange={onFileChange} />
+          <label htmlFor="uploadFile">Excel Workbook</label>
+          <input id="uploadFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={onFileChange} />
 
           <div className="action-row">
             <button className="btn-primary" type="button" onClick={() => void handleUpload()}>
@@ -131,7 +112,7 @@ export default function UploadsPage(): JSX.Element | null {
           <strong>{stats.uploadedRows}</strong>
         </article>
         <article className="stat-card">
-          <p>Processed Packages</p>
+          <p>Refund-Ready Packages</p>
           <strong>{stats.processedPackages}</strong>
         </article>
         <article className="stat-card">

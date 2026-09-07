@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { setSessionCookie } from "@/lib/server/session";
 
 const loginSchema = z.object({
   username: z.string().min(1),
@@ -38,6 +39,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(401).json({ error: "Invalid username or password." });
     return;
   }
+
+  setSessionCookie(res, { sub: data.id, role: data.role, email: data.email });
 
   res.status(200).json({
     id: data.id,
