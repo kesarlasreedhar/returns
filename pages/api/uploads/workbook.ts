@@ -68,6 +68,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     await importReturnsWorkbook(parsed.data.catalog, parsed.data.packages, parsed.data.packageItems, session.email, parsed.data.fileName);
     res.status(200).json({ ok: true });
   } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : "Failed to import workbook." });
+    const databaseError = error as { message?: string; details?: string; hint?: string; code?: string };
+    const message = databaseError.message || (error instanceof Error ? error.message : "Failed to import workbook.");
+    const suffix = [databaseError.details, databaseError.hint, databaseError.code ? `code ${databaseError.code}` : ""]
+      .filter(Boolean)
+      .join(" ");
+    res.status(500).json({ error: suffix ? `${message} ${suffix}` : message });
   }
 }

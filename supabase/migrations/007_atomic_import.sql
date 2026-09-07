@@ -1,20 +1,13 @@
 -- Atomic workbook import: replace the three sequential client-side upserts
--- (catalog -> packages -> package_items) with one transactional RPC, and
--- give package_items a real uniqueness rule so duplicate rows are rejected
--- (upload-time validation) instead of silently upserted/collapsed.
+-- (catalog -> packages -> package_items) with one transactional RPC.
+-- A single return shipment can legitimately include multiple rows with the same
+-- barcode/order reference, so package_items must not enforce a uniqueness rule
+-- that collapses valid shipment contents.
 
--- One-time cleanup: consolidate any pre-existing duplicate package_items rows
--- (same package_id + barcode + order_reference), keeping the most recent one,
--- so the unique index below can be created safely.
-delete from package_items pi
-using package_items pi2
-where pi.package_id = pi2.package_id
-  and pi.barcode = pi2.barcode
-  and coalesce(pi.order_reference, '') = coalesce(pi2.order_reference, '')
-  and pi.created_at < pi2.created_at;
+alter table if exists package_items
+  drop constraint if exists package_items_package_barcode_order_key;
 
-create unique index if not exists package_items_package_barcode_order_key
-  on package_items (package_id, barcode, order_reference);
+drop index if exists package_items_package_barcode_order_key;
 
 create or replace function import_returns_workbook(
   p_catalog jsonb,
@@ -75,17 +68,7 @@ begin
     expected_condition text, customer_return_reason text, refund_amount_usd numeric,
     order_reference text, return_requested_date text, order_date text
   )
-  join packages p on p.return_tracking_number = i.return_tracking_number
-  on conflict (package_id, barcode, order_reference) do update set
-    artist = excluded.artist,
-    title = excluded.title,
-    qty_expected = excluded.qty_expected,
-    expected_condition = excluded.expected_condition,
-    customer_return_reason = excluded.customer_return_reason,
-    refund_amount_usd = excluded.refund_amount_usd,
-    return_requested_date = excluded.return_requested_date,
-    order_date = excluded.order_date,
-    updated_at = now();
+  join packages p on p.return_tracking_number = i.return_tracking_number;
 
   insert into upload_batches (kind, file_name, row_count, uploaded_by)
   values

@@ -37,9 +37,13 @@ export default function MobileScannerPage(): JSX.Element | null {
   const [cameraOn, setCameraOn] = useState(false);
   const [trackingCameraOn, setTrackingCameraOn] = useState(false);
   const [trackingScanNotice, setTrackingScanNotice] = useState("");
+  const [barcodeCameraOn, setBarcodeCameraOn] = useState(false);
+  const [barcodeScanError, setBarcodeScanError] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const trackingVideoRef = useRef<HTMLVideoElement | null>(null);
+  const barcodeVideoRef = useRef<HTMLVideoElement | null>(null);
   const trackingScannerControlsRef = useRef<ZxingControls | null>(null);
+  const barcodeScannerControlsRef = useRef<ZxingControls | null>(null);
 
   useEffect(() => {
     const currentUser = getCurrentUser();
@@ -60,6 +64,7 @@ export default function MobileScannerPage(): JSX.Element | null {
   useEffect(() => () => {
     stopCamera();
     stopTrackingCamera();
+    stopBarcodeCamera();
   }, []);
 
   const completedCount = useMemo(() => items.filter((item) => Boolean(item.actualCondition)).length, [items]);
@@ -110,8 +115,8 @@ export default function MobileScannerPage(): JSX.Element | null {
     }
   }
 
-  function locateBarcode(): void {
-    const normalized = barcodeInput.trim().toLowerCase();
+  function locateBarcode(value?: string): void {
+    const normalized = (value ?? barcodeInput).trim().toLowerCase();
     const item = items.find((candidate) => candidate.barcode.trim().toLowerCase() === normalized) || null;
     if (!item) {
       setError("This barcode is not part of the loaded package.");
@@ -121,6 +126,38 @@ export default function MobileScannerPage(): JSX.Element | null {
     setSelectedItem(item);
     setCondition(item.actualCondition || "Opened");
     setEvidenceDataUrl("");
+  }
+
+  async function startBarcodeCamera(): Promise<void> {
+    const video = barcodeVideoRef.current;
+    if (!video) {
+      return;
+    }
+
+    try {
+      setBarcodeScanError("");
+      const { BarcodeFormat } = await import("@zxing/library");
+      const controls = await startZxingVideoScan(
+        video,
+        [BarcodeFormat.CODE_128, BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E, BarcodeFormat.QR_CODE],
+        (text) => {
+          setBarcodeInput(text);
+          locateBarcode(text);
+          stopBarcodeCamera();
+        }
+      );
+      barcodeScannerControlsRef.current = controls;
+      setBarcodeCameraOn(true);
+    } catch {
+      setBarcodeScanError("Camera access was unavailable. Enter the barcode manually.");
+      setBarcodeCameraOn(false);
+    }
+  }
+
+  function stopBarcodeCamera(): void {
+    stopZxingVideoScan(barcodeScannerControlsRef.current, barcodeVideoRef.current);
+    barcodeScannerControlsRef.current = null;
+    setBarcodeCameraOn(false);
   }
 
   async function saveInspection(): Promise<void> {
@@ -193,6 +230,7 @@ export default function MobileScannerPage(): JSX.Element | null {
       return;
     }
     stopCamera();
+    stopBarcodeCamera();
     setError("");
     setStep(nextStep);
   }
@@ -330,7 +368,14 @@ export default function MobileScannerPage(): JSX.Element | null {
           <div className="mobile-package-summary"><strong>{activePackage.returnTrackingNumber}</strong><span>{completedCount} of {items.length} inspected</span></div>
           <h2>Inspect the item</h2>
           <label htmlFor="mobileBarcode">Item barcode</label>
-          <input id="mobileBarcode" value={barcodeInput} onChange={(event) => setBarcodeInput(event.target.value)} onBlur={locateBarcode} onKeyDown={(event) => event.key === "Enter" && locateBarcode()} />
+          <input id="mobileBarcode" value={barcodeInput} onChange={(event) => setBarcodeInput(event.target.value)} onBlur={() => locateBarcode()} onKeyDown={(event) => event.key === "Enter" && locateBarcode()} />
+          <video className="mobile-camera mobile-barcode-camera" ref={barcodeVideoRef} muted playsInline />
+          {barcodeCameraOn ? (
+            <div className="mobile-button-row">
+              <button className="mobile-secondary-button" type="button" onClick={stopBarcodeCamera}>Stop Camera</button>
+            </div>
+          ) : <button className="mobile-secondary-button" type="button" onClick={() => void startBarcodeCamera()}>Scan Item Barcode</button>}
+          {barcodeScanError ? <p className="mobile-error">{barcodeScanError}</p> : null}
           {selectedItem ? <div className="mobile-item-card"><strong>{selectedItem.title || focusedProduct?.title || "Item"}</strong><span>{selectedItem.artist || focusedProduct?.artist || "Unknown artist"}</span><small>Expected: {selectedItem.expectedCondition || "Not specified"}</small></div> : null}
           <fieldset className="mobile-condition-options"><legend>Actual condition</legend>{conditions.map((option) => <button key={option} type="button" className={condition === option ? "selected" : ""} onClick={() => setCondition(option)}>{option}</button>)}</fieldset>
           <button className="mobile-primary-button" type="button" onClick={() => void saveInspection()} disabled={isSaving || !selectedItem}>{isSaving ? "Saving..." : "Save and Next"}</button>

@@ -254,12 +254,12 @@ function normalizeSheetName(value: string): string {
 
 export async function parseReturnsWorkbook(file: File): Promise<ReturnsWorkbookData> {
   const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
-  const expectedSheets = ["catalog", "packages", "packageitems"];
+  const expectedSheetAliases = [new Set(["catalog", "productcatalog"]), new Set(["packages"]), new Set(["packageitems"])];
   const actualSheets = workbook.SheetNames.map(normalizeSheetName);
 
-  if (actualSheets.length < 3 || expectedSheets.some((name, index) => actualSheets[index] !== name)) {
+  if (actualSheets.length < 3 || expectedSheetAliases.some((allowedNames, index) => !allowedNames.has(actualSheets[index] ?? ""))) {
     throw new Error(
-      `Workbook upload stopped. Sheets must be ordered and named: Catalog, Packages, Package Items. Found: ${workbook.SheetNames.join(" | ") || "(none)"}`
+      `Workbook upload stopped. Sheets must be ordered and named: Catalog / Product Catalog, Packages, Package Items. Found: ${workbook.SheetNames.join(" | ") || "(none)"}`
     );
   }
 
@@ -356,7 +356,6 @@ export function mapPackageItems(rawRows: Record<string, unknown>[]): PackageItem
   const mapped: PackageItem[] = [];
   const validationErrors: string[] = [];
   const detectedHeaders = Object.keys(rawRows[0] || {});
-  const seenRowByKey = new Map<string, number>();
 
   for (let index = 0; index < rawRows.length; index += 1) {
     const row = rawRows[index];
@@ -391,20 +390,6 @@ export function mapPackageItems(rawRows: Record<string, unknown>[]): PackageItem
       );
 
       const parsed = packageItemSchema.parse(canonicalRow);
-
-      const dedupeKey = [
-        parsed["Return Tracking Number"].trim().toUpperCase(),
-        parsed["Barcode (EAN/UPC)"].trim().toUpperCase(),
-        (parsed["Order Reference"] || "").trim().toUpperCase()
-      ].join("__");
-      const firstRow = seenRowByKey.get(dedupeKey);
-      if (firstRow !== undefined) {
-        validationErrors.push(
-          `Row ${index + 2}: duplicate Return Tracking Number + Barcode + Order Reference combination (first seen at row ${firstRow}). Add a distinct Order Reference or remove the duplicate row.`
-        );
-        continue;
-      }
-      seenRowByKey.set(dedupeKey, index + 2);
 
       mapped.push({
         returnTrackingNumber: parsed["Return Tracking Number"],

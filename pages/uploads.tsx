@@ -93,7 +93,7 @@ export default function UploadsPage(): JSX.Element | null {
       <section className="panel-grid single-column">
         <article className="panel">
           <h2>Returns Operations Workbook</h2>
-          <p>Upload one Excel workbook with sheets in this order: Catalog, Packages, Package Items.</p>
+          <p>Upload one Excel workbook with sheets in this order: Catalog (or Product Catalog), Packages, Package Items.</p>
 
           <label htmlFor="uploadFile">Excel Workbook</label>
           <input id="uploadFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={onFileChange} />
