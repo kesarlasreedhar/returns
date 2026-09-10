@@ -23,12 +23,15 @@ export default function MobileScannerPage(): JSX.Element | null {
   const [user, setUser] = useState<AppUser | null>(null);
   const [step, setStep] = useState<WorkflowStep>("package");
   const [trackingInput, setTrackingInput] = useState("");
+  const [showTrackingSuggestions, setShowTrackingSuggestions] = useState(false);
+  const [knownPackages, setKnownPackages] = useState<PackageSummary[]>([]);
   const [barcodeInput, setBarcodeInput] = useState("");
   const [activePackage, setActivePackage] = useState<PackageSummary | null>(null);
   const [items, setItems] = useState<PackageItem[]>([]);
   const [catalog, setCatalog] = useState<Record<string, CatalogProduct>>({});
   const [photosByItemId, setPhotosByItemId] = useState<Record<string, InspectionPhoto>>({});
   const [selectedItem, setSelectedItem] = useState<PackageItem | null>(null);
+  const [selectedImage, setSelectedImage] = useState("");
   const [condition, setCondition] = useState("Opened");
   const [evidenceDataUrl, setEvidenceDataUrl] = useState("");
   const [notice, setNotice] = useState("");
@@ -59,7 +62,21 @@ export default function MobileScannerPage(): JSX.Element | null {
         return result;
       }, {}));
     });
+    void getPackages().then(setKnownPackages);
   }, [router]);
+
+  useEffect(() => {
+    if (!user || !router.isReady) {
+      return;
+    }
+    const queryTracking = router.query.tracking;
+    const tracking = Array.isArray(queryTracking) ? queryTracking[0] : queryTracking;
+    if (tracking) {
+      setTrackingInput(tracking);
+      void loadPackage(tracking);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, router.isReady]);
 
   useEffect(() => () => {
     stopCamera();
@@ -69,6 +86,22 @@ export default function MobileScannerPage(): JSX.Element | null {
 
   const completedCount = useMemo(() => items.filter((item) => Boolean(item.actualCondition)).length, [items]);
   const focusedProduct = selectedItem ? catalog[selectedItem.barcode] : undefined;
+
+  const trackingSuggestions = useMemo(() => {
+    const query = trackingInput.trim().toUpperCase();
+    if (query.length < 4) {
+      return [];
+    }
+    return knownPackages
+      .filter((pkg) => pkg.returnTrackingNumber.toUpperCase().includes(query))
+      .slice(0, 6);
+  }, [knownPackages, trackingInput]);
+
+  function selectTrackingSuggestion(tracking: string): void {
+    setTrackingInput(tracking);
+    setShowTrackingSuggestions(false);
+    void loadPackage(tracking);
+  }
 
   const chooseNextItem = useCallback((packageItems: PackageItem[]): void => {
     const nextItem = packageItems.find((item) => !item.actualCondition) || null;
@@ -89,6 +122,7 @@ export default function MobileScannerPage(): JSX.Element | null {
     setError("");
     try {
       const [allPackages, allItems, inspectionPhotos] = await Promise.all([getPackages(), getPackageItems(), getInspectionPhotos()]);
+      setKnownPackages(allPackages);
       const packageToInspect = allPackages.find((item) => item.returnTrackingNumber === tracking) || null;
       const packageItems = allItems.filter((item) => item.returnTrackingNumber === tracking);
 
@@ -224,6 +258,25 @@ export default function MobileScannerPage(): JSX.Element | null {
     setError("");
   }
 
+  async function uploadEvidenceForItem(item: PackageItem, file: File): Promise<void> {
+    if (!item.id || !user) {
+      return;
+    }
+    setError("");
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      await saveInspectionPhoto(item.id, dataUrl, user.email);
+      const itemId = item.id;
+      setPhotosByItemId((prev) => ({
+        ...prev,
+        [itemId]: { id: itemId, packageItemId: itemId, filePath: dataUrl, uploadedBy: user.email, createdAt: new Date().toISOString() }
+      }));
+      setNotice(`Evidence photo added for ${item.barcode}.`);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Unable to upload evidence photo.");
+    }
+  }
+
   function goToStep(nextStep: WorkflowStep): void {
     if (nextStep !== "package" && !activePackage) {
       setError("Load a package before opening this step.");
@@ -350,7 +403,31 @@ export default function MobileScannerPage(): JSX.Element | null {
           <h2>Scan the return label</h2>
           <p>Use a handheld scanner or enter the carrier tracking number.</p>
           <label htmlFor="mobileTracking">Return tracking number</label>
-          <input id="mobileTracking" autoFocus value={trackingInput} onChange={(event) => setTrackingInput(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void loadPackage()} />
+          <input
+            id="mobileTracking"
+            autoFocus
+            autoComplete="off"
+            value={trackingInput}
+            onChange={(event) => {
+              setTrackingInput(event.target.value);
+              setShowTrackingSuggestions(true);
+            }}
+            onFocus={() => setShowTrackingSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowTrackingSuggestions(false), 150)}
+            onKeyDown={(event) => event.key === "Enter" && void loadPackage()}
+          />
+          {showTrackingSuggestions && trackingSuggestions.length > 0 ? (
+            <ul className="mobile-tracking-suggestions" aria-label="Matching tracking numbers">
+              {trackingSuggestions.map((pkg) => (
+                <li key={pkg.returnTrackingNumber}>
+                  <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => selectTrackingSuggestion(pkg.returnTrackingNumber)}>
+                    <span>{pkg.returnTrackingNumber}</span>
+                    <small>{pkg.carrier}</small>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <video className="mobile-camera mobile-tracking-camera" ref={trackingVideoRef} muted playsInline />
           {trackingCameraOn ? (
             <div className="mobile-button-row">
@@ -381,12 +458,22 @@ export default function MobileScannerPage(): JSX.Element | null {
           <button className="mobile-primary-button" type="button" onClick={() => void saveInspection()} disabled={isSaving || !selectedItem}>{isSaving ? "Saving..." : "Save and Next"}</button>
           <button className="mobile-secondary-button" type="button" onClick={() => goToStep("evidence")} disabled={!selectedItem}>Add Optional Evidence</button>
           <div className="mobile-package-item-list" aria-label="Package items">
-            {items.map((item) => (
-              <button key={`${item.barcode}_${item.orderReference}`} type="button" className={selectedItem === item ? "selected" : ""} onClick={() => selectInspectionItem(item)}>
-                <span>{item.title || catalog[item.barcode]?.title || item.barcode}</span>
-                <small>{item.actualCondition ? `Saved: ${item.actualCondition}` : "Pending"}</small>
-              </button>
-            ))}
+            {items.map((item) => {
+              const photo = item.id ? photosByItemId[item.id] : undefined;
+              return (
+                <div key={`${item.barcode}_${item.orderReference}`} className="mobile-item-row">
+                  <button type="button" className={selectedItem === item ? "selected" : ""} onClick={() => selectInspectionItem(item)}>
+                    <span>{item.title || catalog[item.barcode]?.title || item.barcode}</span>
+                    <small>{item.actualCondition ? `Saved: ${item.actualCondition}` : "Pending"}</small>
+                  </button>
+                  {photo ? (
+                    <button type="button" className="mobile-view-image-button" onClick={() => setSelectedImage(photo.filePath)}>
+                      View Image
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         </section>
       ) : null}
@@ -438,7 +525,21 @@ export default function MobileScannerPage(): JSX.Element | null {
                   {photo ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img className="mobile-completed-evidence" src={photo.filePath} alt={`Evidence for ${item.barcode}`} />
-                  ) : <small className="mobile-no-evidence">No evidence photo</small>}
+                  ) : (
+                    <label className="mobile-evidence-upload" htmlFor={`mobileEvidenceUpload-${item.barcode}-${item.orderReference}`}>
+                      No evidence photo
+                      <input
+                        id={`mobileEvidenceUpload-${item.barcode}-${item.orderReference}`}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) void uploadEvidenceForItem(item, file);
+                        }}
+                      />
+                    </label>
+                  )}
                 </article>
               );
             })}
@@ -447,6 +548,21 @@ export default function MobileScannerPage(): JSX.Element | null {
           {!(["ready_for_refund", "review_for_refund", "closed"] as string[]).includes(activePackage.status) && completedCount !== items.length ? <button className="mobile-secondary-button" type="button" onClick={() => goToStep("inspect")}>Return to Items</button> : null}
           <button className="mobile-secondary-button" type="button" onClick={resetScanner}>Scan Another Package</button>
         </section>
+      ) : null}
+
+      {selectedImage ? (
+        <div className="modal-overlay" onClick={() => setSelectedImage("")}>
+          <div className="modal-card image-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Evidence Image</h3>
+              <button className="btn-secondary" type="button" onClick={() => setSelectedImage("")}>
+                Close
+              </button>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="report-image-large" src={selectedImage} alt="Condition evidence" />
+          </div>
+        </div>
       ) : null}
     </main>
   );

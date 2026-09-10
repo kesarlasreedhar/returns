@@ -373,6 +373,17 @@ select {
   font-weight: 600;
 }
 
+.tracking-link {
+  color: var(--brand, #4c86d6);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.tracking-link:hover {
+  color: #f7fbff;
+}
+
 .status-badge {
   border-radius: 999px;
   padding: 4px 10px;
@@ -768,11 +779,19 @@ button:disabled {
 .mobile-condition-options button { min-height: 48px; border: 1px solid #3e5a63; background: #18262c; color: #c5d7db; cursor: pointer; }
 .mobile-condition-options button.selected { background: #246b58; border-color: #55c7a4; color: #ecfff9; }
 .mobile-package-item-list { display: grid; gap: 7px; margin-top: 18px; }
+.mobile-item-row { display: flex; gap: 8px; align-items: stretch; }
 .mobile-package-item-list button { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 48px; padding: 10px; border: 1px solid #3e5a63; background: #0d171b; color: #d9ecee; cursor: pointer; text-align: left; }
+.mobile-item-row > button:first-child { flex: 1; }
+.mobile-view-image-button { flex: 0 0 auto; justify-content: center !important; font-size: 13px; white-space: nowrap; }
 .mobile-package-item-list button.selected { border-color: #55c7a4; background: #173932; }
 .mobile-package-item-list small { color: #a8bbc1; white-space: nowrap; }
 .mobile-camera, .mobile-evidence-preview { display: block; width: 100%; min-height: 190px; object-fit: cover; border: 1px solid #3e5a63; background: #091014; margin: 16px 0 0; }
 .mobile-tracking-camera { min-height: 220px; }
+.mobile-tracking-suggestions { list-style: none; margin: 6px 0 0; padding: 0; border: 1px solid #3e5a63; background: #0d171b; }
+.mobile-tracking-suggestions li + li { border-top: 1px solid #253a41; }
+.mobile-tracking-suggestions button { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 10px; border: 0; background: transparent; color: #d9ecee; cursor: pointer; text-align: left; }
+.mobile-tracking-suggestions button:hover, .mobile-tracking-suggestions button:focus { background: #173932; }
+.mobile-tracking-suggestions small { color: #a8bbc1; white-space: nowrap; }
 .mobile-evidence-preview { max-height: 300px; }
 .mobile-scan-notice { color: #a8bbc1; font-size: 13px; line-height: 1.4; margin: 10px 0 0; }
 .mobile-button-row { gap: 8px; }
@@ -789,6 +808,8 @@ button:disabled {
 .mobile-completed-item span, .mobile-completed-item small { display: block; color: #a8bbc1; font-size: 12px; margin-top: 3px; }
 .mobile-completed-item .mobile-completed-evidence { border-color: #55c7a4; }
 .mobile-no-evidence { text-align: center; }
+.mobile-evidence-upload { width: 62px; height: 62px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 2px; font-size: 10px; line-height: 1.2; color: #c5d7db; border: 1px dashed #57717a; cursor: pointer; }
+.mobile-evidence-upload input { display: none; }
 
 @media (max-width: 720px) {
   .sidebar {

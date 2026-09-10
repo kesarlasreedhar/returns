@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/router";
 import { AppLayout } from "@/components/AppLayout";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -199,6 +200,7 @@ export default function ReportsPage(): JSX.Element | null {
         <thead>
           <tr>
             <th>Tracking #</th>
+            <th>Order #</th>
             <th>Barcode</th>
             <th>Expected</th>
             <th>Actual</th>
@@ -211,7 +213,12 @@ export default function ReportsPage(): JSX.Element | null {
             const photo = item.id ? photosByItemId[item.id] : undefined;
             return (
               <tr key={`${item.returnTrackingNumber}_${item.barcode}_${item.orderReference}`}>
-                <td>{item.returnTrackingNumber}</td>
+                <td>
+                  <Link href={`/package-review?tracking=${encodeURIComponent(item.returnTrackingNumber)}`}>
+                    <a className="tracking-link">{item.returnTrackingNumber}</a>
+                  </Link>
+                </td>
+                <td>{item.orderReference || "-"}</td>
                 <td>{item.barcode}</td>
                 <td>{item.expectedCondition}</td>
                 <td>{item.actualCondition || "Pending"}</td>
@@ -260,7 +267,11 @@ export default function ReportsPage(): JSX.Element | null {
         <tbody>
           {packages.map((pkg) => (
             <tr key={pkg.returnTrackingNumber}>
-              <td>{pkg.returnTrackingNumber}</td>
+              <td>
+                <Link href={`/package-review?tracking=${encodeURIComponent(pkg.returnTrackingNumber)}`}>
+                  <a className="tracking-link">{pkg.returnTrackingNumber}</a>
+                </Link>
+              </td>
               <td>{pkg.carrier}</td>
               <td>{pkg.totalUnits}</td>
               <td>${pkg.totalRefundUsd.toFixed(2)}</td>

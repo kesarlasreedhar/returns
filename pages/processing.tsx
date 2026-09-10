@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/router";
 import { AppLayout } from "@/components/AppLayout";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -15,8 +16,6 @@ export default function ProcessingPage(): JSX.Element | null {
   const [user, setUser] = useState<AppUser | null>(null);
   const [packages, setPackages] = useState<PackageSummary[]>([]);
   const [statusFilter, setStatusFilter] = useState<"all" | PackageStatus>("all");
-  const [minRefund, setMinRefund] = useState("");
-  const [maxRefund, setMaxRefund] = useState("");
   const [trackingSearch, setTrackingSearch] = useState("");
 
   useEffect(() => {
@@ -55,18 +54,9 @@ export default function ProcessingPage(): JSX.Element | null {
         return false;
       }
 
-      const min = minRefund ? Number(minRefund) : null;
-      const max = maxRefund ? Number(maxRefund) : null;
-      if (min !== null && !Number.isNaN(min) && pkg.totalRefundUsd < min) {
-        return false;
-      }
-      if (max !== null && !Number.isNaN(max) && pkg.totalRefundUsd > max) {
-        return false;
-      }
-
       return true;
     });
-  }, [maxRefund, minRefund, packages, statusFilter, trackingSearch]);
+  }, [packages, statusFilter, trackingSearch]);
 
   if (!user) {
     return null;
@@ -107,14 +97,6 @@ export default function ProcessingPage(): JSX.Element | null {
         </article>
 
         <article className="panel">
-          <h2>Total Refund</h2>
-          <label htmlFor="minRefund">Min Refund</label>
-          <input id="minRefund" type="number" value={minRefund} onChange={(event) => setMinRefund(event.target.value)} placeholder="0" />
-          <label htmlFor="maxRefund">Max Refund</label>
-          <input id="maxRefund" type="number" value={maxRefund} onChange={(event) => setMaxRefund(event.target.value)} placeholder="1000" />
-        </article>
-
-        <article className="panel">
           <h2>Queue Count</h2>
           <p className="hint-text">Showing {filteredPackages.length} packages</p>
         </article>
@@ -127,7 +109,6 @@ export default function ProcessingPage(): JSX.Element | null {
             <th>Carrier</th>
             <th>Distinct Items</th>
             <th>Total Units</th>
-            <th>Total Refund</th>
             <th>Status</th>
             <th>Update</th>
           </tr>
@@ -135,11 +116,14 @@ export default function ProcessingPage(): JSX.Element | null {
         <tbody>
           {filteredPackages.map((pkg) => (
             <tr key={pkg.returnTrackingNumber}>
-              <td>{pkg.returnTrackingNumber}</td>
+              <td>
+                <Link href={`/mobile-scanner?tracking=${encodeURIComponent(pkg.returnTrackingNumber)}`}>
+                  <a className="tracking-link">{pkg.returnTrackingNumber}</a>
+                </Link>
+              </td>
               <td>{pkg.carrier}</td>
               <td>{pkg.distinctItems}</td>
               <td>{pkg.totalUnits}</td>
-              <td>${pkg.totalRefundUsd.toFixed(2)}</td>
               <td>
                 <StatusBadge status={pkg.status} />
               </td>
