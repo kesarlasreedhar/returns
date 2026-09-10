@@ -17,6 +17,7 @@ export default function ProcessingPage(): JSX.Element | null {
   const [packages, setPackages] = useState<PackageSummary[]>([]);
   const [statusFilter, setStatusFilter] = useState<"all" | PackageStatus>("all");
   const [trackingSearch, setTrackingSearch] = useState("");
+  const [orderRefSearch, setOrderRefSearch] = useState("");
 
   useEffect(() => {
     const current = getCurrentUser();
@@ -54,9 +55,14 @@ export default function ProcessingPage(): JSX.Element | null {
         return false;
       }
 
+      const normalizedOrderSearch = orderRefSearch.trim().toUpperCase();
+      if (normalizedOrderSearch && !pkg.orderReferences.toUpperCase().includes(normalizedOrderSearch)) {
+        return false;
+      }
+
       return true;
     });
-  }, [packages, statusFilter, trackingSearch]);
+  }, [packages, statusFilter, trackingSearch, orderRefSearch]);
 
   if (!user) {
     return null;
@@ -84,6 +90,17 @@ export default function ProcessingPage(): JSX.Element | null {
         </article>
 
         <article className="panel">
+          <h2>Find Order Reference</h2>
+          <label htmlFor="orderRefSearch">Order Reference</label>
+          <input
+            id="orderRefSearch"
+            value={orderRefSearch}
+            onChange={(event) => setOrderRefSearch(event.target.value)}
+            placeholder="Search order #"
+          />
+        </article>
+
+        <article className="panel">
           <h2>Filter Queue</h2>
           <label htmlFor="statusFilter">Status</label>
           <select id="statusFilter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | PackageStatus)}>
@@ -106,6 +123,7 @@ export default function ProcessingPage(): JSX.Element | null {
         <thead>
           <tr>
             <th>Tracking #</th>
+            <th>Order #</th>
             <th>Carrier</th>
             <th>Distinct Items</th>
             <th>Total Units</th>
@@ -121,6 +139,7 @@ export default function ProcessingPage(): JSX.Element | null {
                   <a className="tracking-link">{pkg.returnTrackingNumber}</a>
                 </Link>
               </td>
+              <td>{pkg.orderReferences || "-"}</td>
               <td>{pkg.carrier}</td>
               <td>{pkg.distinctItems}</td>
               <td>{pkg.totalUnits}</td>

@@ -703,6 +703,18 @@ button:disabled {
   color: var(--muted);
 }
 
+.operation-note textarea {
+  width: 100%;
+  resize: vertical;
+  margin-bottom: 10px;
+}
+
+.note-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .image-modal {
   width: min(860px, 100%);
 }
