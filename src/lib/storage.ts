@@ -31,8 +31,23 @@ async function postJson(url: string, body: unknown): Promise<void> {
   });
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    throw new Error((payload && payload.error) || "Request failed.");
+    let errorMessage = "Request failed.";
+    try {
+      const text = await response.text();
+      try {
+        const payload = JSON.parse(text);
+        if (payload && typeof payload.error === "string") {
+          errorMessage = payload.error;
+        }
+      } catch {
+        if (text && text.trim().length > 0) {
+          errorMessage = text.trim();
+        }
+      }
+    } catch {
+      // fallback
+    }
+    throw new Error(errorMessage);
   }
 }
 

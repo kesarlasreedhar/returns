@@ -8,6 +8,14 @@ const postSchema = z.object({
   filePath: z.string().min(1)
 });
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "25mb"
+    }
+  }
+};
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method === "GET") {
     const session = requireSession(req, res);

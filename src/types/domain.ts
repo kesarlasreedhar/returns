@@ -41,6 +41,8 @@ export type PackageItem = {
   returnRequestedDate: string;
   orderDate: string;
   actualCondition?: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type CatalogProduct = {

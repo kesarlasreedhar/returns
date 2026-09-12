@@ -63,7 +63,9 @@ export async function getPackageItems(): Promise<PackageItem[]> {
     orderReference: row.order_reference || "",
     returnRequestedDate: row.return_requested_date || "",
     orderDate: row.order_date || "",
-    actualCondition: row.actual_condition || ""
+    actualCondition: row.actual_condition || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   }));
 }
 
@@ -268,7 +270,13 @@ export async function evaluatePackageRefundStatus(returnTrackingNumber: string, 
 }
 
 export async function updateItemCondition(packageItemId: string, actualCondition: string): Promise<void> {
-  const { error } = await supabaseAdmin.from("package_items").update({ actual_condition: actualCondition }).eq("id", packageItemId);
+  const { error } = await supabaseAdmin
+    .from("package_items")
+    .update({
+      actual_condition: actualCondition,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", packageItemId);
   if (error) {
     throw error;
   }

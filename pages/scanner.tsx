@@ -757,11 +757,54 @@ function makeRowKey(item: PackageItem): string {
   return `${item.returnTrackingNumber}_${item.barcode}_${item.orderReference}`;
 }
 
-async function fileToDataUrl(file: File): Promise<string> {
+async function fileToDataUrl(file: File, maxDimension = 1600, quality = 0.82): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
     reader.onerror = () => reject(new Error("Unable to read image file"));
+    reader.onload = () => {
+      const rawDataUrl = String(reader.result || "");
+      if (!file.type.startsWith("image/")) {
+        resolve(rawDataUrl);
+        return;
+      }
+
+      const img = new Image();
+      img.onerror = () => resolve(rawDataUrl);
+      img.onload = () => {
+        try {
+          let { width, height } = img;
+          if (width <= maxDimension && height <= maxDimension && file.size < 500 * 1024) {
+            resolve(rawDataUrl);
+            return;
+          }
+
+          if (width > maxDimension || height > maxDimension) {
+            if (width > height) {
+              height = Math.round((height * maxDimension) / width);
+              width = maxDimension;
+            } else {
+              width = Math.round((width * maxDimension) / height);
+              height = maxDimension;
+            }
+          }
+
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve(rawDataUrl);
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        } catch {
+          resolve(rawDataUrl);
+        }
+      };
+      img.src = rawDataUrl;
+    };
     reader.readAsDataURL(file);
   });
 }

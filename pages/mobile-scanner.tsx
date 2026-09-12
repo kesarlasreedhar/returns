@@ -9,7 +9,8 @@ import {
   getPackages,
   markPackageScanned,
   saveInspectionPhoto,
-  updateItemCondition
+  updateItemCondition,
+  updatePackageStatus
 } from "@/lib/storage";
 import { AppUser, CatalogProduct, InspectionPhoto, PackageItem, PackageSummary } from "@/types/domain";
 import { findKnownTrackingNumber, startZxingVideoScan, stopZxingVideoScan, ZxingControls } from "@/lib/zxingScanner";
@@ -202,16 +203,23 @@ export default function MobileScannerPage(): JSX.Element | null {
     setIsSaving(true);
     setError("");
     try {
+      const nowIso = new Date().toISOString();
       await updateItemCondition(selectedItem.id, condition);
       const refundStatus = await evaluatePackageRefundStatus(activePackage.returnTrackingNumber);
       if (evidenceDataUrl && selectedItem.id) {
         await saveInspectionPhoto(selectedItem.id, evidenceDataUrl, user.email);
       }
 
-      const updatedItems = items.map((item) => item === selectedItem ? { ...item, actualCondition: condition } : item);
+      const updatedItems = items.map((item) =>
+        item === selectedItem ? { ...item, actualCondition: condition, updatedAt: nowIso } : item
+      );
       setItems(updatedItems);
       const remainingItem = updatedItems.find((item) => !item.actualCondition) || null;
-      setNotice(`${selectedItem.barcode} saved as ${condition}.${refundStatus === "scanned" ? " Package remains scanned until all items are inspected." : ` Package is ${refundStatus === "ready_for_refund" ? "ready for refund" : "ready for refund review"}.`}`);
+      setNotice(
+        remainingItem
+          ? `${selectedItem.barcode} saved as ${condition}.`
+          : `${selectedItem.barcode} saved as ${condition}. All items inspected. Select Ready for Refund or Ready for Review below.`
+      );
       setEvidenceDataUrl("");
 
       if (remainingItem) {
@@ -222,6 +230,7 @@ export default function MobileScannerPage(): JSX.Element | null {
       } else {
         setSelectedItem(null);
         setBarcodeInput("");
+        setActivePackage((prev) => prev ? { ...prev, status: refundStatus, updatedAt: nowIso } : null);
         setStep("complete");
       }
     } catch (saveError) {
@@ -231,21 +240,24 @@ export default function MobileScannerPage(): JSX.Element | null {
     }
   }
 
-  async function completePackage(): Promise<void> {
+  async function setPackageRefundStatus(nextStatus: "ready_for_refund" | "review_for_refund"): Promise<void> {
     if (!activePackage) {
       return;
     }
     if (completedCount !== items.length) {
-      setError("Record an actual condition for every package item before completing the package.");
+      setError("Record an actual condition for every package item before setting the status.");
       return;
     }
     setIsSaving(true);
+    setError("");
     try {
-      const refundStatus = await evaluatePackageRefundStatus(activePackage.returnTrackingNumber);
-      setNotice(`${activePackage.returnTrackingNumber} is ${refundStatus === "ready_for_refund" ? "ready for refund" : "ready for refund review"}.`);
-      setActivePackage({ ...activePackage, status: refundStatus });
+      const nowIso = new Date().toISOString();
+      await updatePackageStatus(activePackage.returnTrackingNumber, nextStatus);
+      const label = nextStatus === "ready_for_refund" ? "Ready for Refund" : "Ready for Review";
+      setNotice(`${activePackage.returnTrackingNumber} status set to ${label}.`);
+      setActivePackage({ ...activePackage, status: nextStatus, updatedAt: nowIso });
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Unable to complete this package.");
+      setError(saveError instanceof Error ? saveError.message : "Unable to update package refund status.");
     } finally {
       setIsSaving(false);
     }
@@ -453,18 +465,35 @@ export default function MobileScannerPage(): JSX.Element | null {
             </div>
           ) : <button className="mobile-secondary-button" type="button" onClick={() => void startBarcodeCamera()}>Scan Item Barcode</button>}
           {barcodeScanError ? <p className="mobile-error">{barcodeScanError}</p> : null}
-          {selectedItem ? <div className="mobile-item-card"><strong>{selectedItem.title || focusedProduct?.title || "Item"}</strong><span>{selectedItem.artist || focusedProduct?.artist || "Unknown artist"}</span><small>Expected: {selectedItem.expectedCondition || "Not specified"}</small></div> : null}
+          {selectedItem ? (
+            <div className="mobile-item-card">
+              <strong>{selectedItem.title || focusedProduct?.title || "Item"}</strong>
+              <span>{selectedItem.artist || focusedProduct?.artist || "Unknown artist"}</span>
+              <small>Barcode: <strong>{selectedItem.barcode}</strong></small>
+              <small>Expected: {selectedItem.expectedCondition || "Not specified"}</small>
+            </div>
+          ) : null}
           <fieldset className="mobile-condition-options"><legend>Actual condition</legend>{conditions.map((option) => <button key={option} type="button" className={condition === option ? "selected" : ""} onClick={() => setCondition(option)}>{option}</button>)}</fieldset>
           <button className="mobile-primary-button" type="button" onClick={() => void saveInspection()} disabled={isSaving || !selectedItem}>{isSaving ? "Saving..." : "Save and Next"}</button>
           <button className="mobile-secondary-button" type="button" onClick={() => goToStep("evidence")} disabled={!selectedItem}>Add Optional Evidence</button>
           <div className="mobile-package-item-list" aria-label="Package items">
-            {items.map((item) => {
+            {items.map((item, index) => {
               const photo = item.id ? photosByItemId[item.id] : undefined;
               return (
-                <div key={`${item.barcode}_${item.orderReference}`} className="mobile-item-row">
+                <div key={item.id || `${item.barcode}_${index}`} className="mobile-item-row">
                   <button type="button" className={selectedItem === item ? "selected" : ""} onClick={() => selectInspectionItem(item)}>
-                    <span>{item.title || catalog[item.barcode]?.title || item.barcode}</span>
-                    <small>{item.actualCondition ? `Saved: ${item.actualCondition}` : "Pending"}</small>
+                    <div className="mobile-item-info">
+                      <span className="mobile-item-title">{item.title || catalog[item.barcode]?.title || "Item"}</span>
+                      <span className="mobile-item-barcode">Barcode: <strong>{item.barcode}</strong></span>
+                    </div>
+                    <div className="mobile-item-status-block">
+                      <small className={item.actualCondition ? "status-saved" : "status-pending"}>
+                        {item.actualCondition ? `Saved: ${item.actualCondition}` : "Pending"}
+                      </small>
+                      {item.actualCondition && (item.updatedAt || item.createdAt) ? (
+                        <span className="mobile-item-scan-time">{formatScanDate(item.updatedAt || item.createdAt)}</span>
+                      ) : null}
+                    </div>
                   </button>
                   {photo ? (
                     <button type="button" className="mobile-view-image-button" onClick={() => setSelectedImage(photo.filePath)}>
@@ -499,12 +528,23 @@ export default function MobileScannerPage(): JSX.Element | null {
       {step === "complete" && activePackage ? (
         <section className="mobile-scanner-stage mobile-complete-stage">
           <p className="mobile-step-label">Step 4 of 4</p>
-          <h2>{activePackage.status === "ready_for_refund" ? "Ready for refund" : activePackage.status === "review_for_refund" ? "Review for refund" : "Ready to finalize"}</h2>
+          <h2>{activePackage.status === "ready_for_refund" ? "Ready for Refund" : activePackage.status === "review_for_refund" ? "Ready for Review" : "Package Inspection Complete"}</h2>
           <p>{completedCount} of {items.length} items have been recorded.</p>
           <div className="mobile-completed-package-details">
             <p><strong>Tracking:</strong> {activePackage.returnTrackingNumber}</p>
             <p><strong>Carrier:</strong> {activePackage.carrier || "Not recorded"}</p>
             <p><strong>Order reference:</strong> {activePackage.orderReferences || "Not recorded"}</p>
+            <p><strong>Scan Completed:</strong> <strong>{formatScanDate(activePackage.updatedAt || activePackage.createdAt)}</strong></p>
+            <p>
+              <strong>Status:</strong>{" "}
+              <span className={`status-pill ${activePackage.status}`}>
+                {activePackage.status === "ready_for_refund"
+                  ? "Ready for Refund"
+                  : activePackage.status === "review_for_refund"
+                    ? "Ready for Review"
+                    : "Inspection In Progress"}
+              </span>
+            </p>
           </div>
           <div className="mobile-completed-items">
             {items.map((item) => {
@@ -518,9 +558,13 @@ export default function MobileScannerPage(): JSX.Element | null {
                   ) : <div className="mobile-completed-image-empty">No product image</div>}
                   <div>
                     <strong>{item.title || product?.title || "Item"}</strong>
-                    <span>{item.artist || product?.artist || item.barcode}</span>
+                    <span>{item.artist || product?.artist || ""}</span>
+                    <small>Barcode: <strong>{item.barcode}</strong></small>
                     <small>Expected: {item.expectedCondition || "Not specified"}</small>
                     <small>Actual: {item.actualCondition || "Pending"}</small>
+                    {item.actualCondition && (item.updatedAt || item.createdAt) ? (
+                      <small>Scan completed: <strong>{formatScanDate(item.updatedAt || item.createdAt)}</strong></small>
+                    ) : null}
                   </div>
                   {photo ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -544,9 +588,35 @@ export default function MobileScannerPage(): JSX.Element | null {
               );
             })}
           </div>
-          {!(["ready_for_refund", "review_for_refund", "closed"] as string[]).includes(activePackage.status) ? <button className="mobile-primary-button" type="button" onClick={() => void completePackage()} disabled={isSaving}>{isSaving ? "Syncing..." : "Finalize Refund Status"}</button> : null}
-          {!(["ready_for_refund", "review_for_refund", "closed"] as string[]).includes(activePackage.status) && completedCount !== items.length ? <button className="mobile-secondary-button" type="button" onClick={() => goToStep("inspect")}>Return to Items</button> : null}
-          <button className="mobile-secondary-button" type="button" onClick={resetScanner}>Scan Another Package</button>
+          <div className="mobile-actions-stack">
+            <button
+              className={`mobile-primary-button ${activePackage.status === "ready_for_refund" ? "selected" : ""}`}
+              type="button"
+              onClick={() => void setPackageRefundStatus("ready_for_refund")}
+              disabled={isSaving || completedCount !== items.length}
+            >
+              {isSaving ? "Updating..." : activePackage.status === "ready_for_refund" ? "✓ Ready for Refund" : "Ready for Refund"}
+            </button>
+
+            <button
+              className={`mobile-warning-button ${activePackage.status === "review_for_refund" ? "selected" : ""}`}
+              type="button"
+              onClick={() => void setPackageRefundStatus("review_for_refund")}
+              disabled={isSaving || completedCount !== items.length}
+            >
+              {isSaving ? "Updating..." : activePackage.status === "review_for_refund" ? "✓ Ready for Review" : "Ready for Review"}
+            </button>
+          </div>
+
+          {completedCount !== items.length ? (
+            <button className="mobile-secondary-button" type="button" onClick={() => goToStep("inspect")}>
+              Return to Inspect Items ({items.length - completedCount} remaining)
+            </button>
+          ) : null}
+
+          <button className="mobile-secondary-button" type="button" onClick={resetScanner}>
+            Scan Another Package
+          </button>
         </section>
       ) : null}
 
@@ -568,11 +638,69 @@ export default function MobileScannerPage(): JSX.Element | null {
   );
 }
 
-function fileToDataUrl(file: File): Promise<string> {
+function fileToDataUrl(file: File, maxDimension = 1600, quality = 0.82): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
     reader.onerror = () => reject(new Error("Unable to read evidence image."));
+    reader.onload = () => {
+      const rawDataUrl = String(reader.result || "");
+      if (!file.type.startsWith("image/")) {
+        resolve(rawDataUrl);
+        return;
+      }
+
+      const img = new Image();
+      img.onerror = () => resolve(rawDataUrl);
+      img.onload = () => {
+        try {
+          let { width, height } = img;
+          if (width <= maxDimension && height <= maxDimension && file.size < 500 * 1024) {
+            resolve(rawDataUrl);
+            return;
+          }
+
+          if (width > maxDimension || height > maxDimension) {
+            if (width > height) {
+              height = Math.round((height * maxDimension) / width);
+              width = maxDimension;
+            } else {
+              width = Math.round((width * maxDimension) / height);
+              height = maxDimension;
+            }
+          }
+
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve(rawDataUrl);
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        } catch {
+          resolve(rawDataUrl);
+        }
+      };
+      img.src = rawDataUrl;
+    };
     reader.readAsDataURL(file);
   });
+}
+
+function formatScanDate(isoString: string | undefined | null): string {
+  if (!isoString) return "—";
+  try {
+    return new Date(isoString).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  } catch {
+    return isoString;
+  }
 }
