@@ -28,6 +28,7 @@ export default function ReportsPage(): JSX.Element | null {
   const [photosByItemId, setPhotosByItemId] = useState<Record<string, InspectionPhoto>>({});
   const [showOnlyMismatches, setShowOnlyMismatches] = useState(true);
   const [selectedCondition, setSelectedCondition] = useState<"all" | "Damaged" | "Opened" | "New">("all");
+  const [orderRefSearch, setOrderRefSearch] = useState("");
   const [selectedImage, setSelectedImage] = useState("");
   const [report, setReport] = useState<ReportData>({
     totalPackages: 0,
@@ -92,9 +93,14 @@ export default function ReportsPage(): JSX.Element | null {
         return false;
       }
 
+      const normalizedOrderSearch = orderRefSearch.trim().toUpperCase();
+      if (normalizedOrderSearch && !(item.orderReference || "").toUpperCase().includes(normalizedOrderSearch)) {
+        return false;
+      }
+
       return Boolean(item.actualCondition);
     });
-  }, [items, selectedCondition, showOnlyMismatches]);
+  }, [items, selectedCondition, showOnlyMismatches, orderRefSearch]);
 
   if (!user) {
     return null;
@@ -188,6 +194,16 @@ export default function ReportsPage(): JSX.Element | null {
             <option value="Opened">Opened</option>
             <option value="New">New</option>
           </select>
+        </article>
+
+        <article className="panel">
+          <label htmlFor="orderRefSearch">Order reference</label>
+          <input
+            id="orderRefSearch"
+            value={orderRefSearch}
+            onChange={(event) => setOrderRefSearch(event.target.value)}
+            placeholder="Search order #"
+          />
         </article>
 
         <article className="panel">

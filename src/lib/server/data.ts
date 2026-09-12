@@ -258,7 +258,9 @@ export async function evaluatePackageRefundStatus(returnTrackingNumber: string, 
 
   const expectedUnits = (items || []).reduce((total, item) => total + Number(item.qty_expected || 0), 0);
   const allItemsInspected = (items || []).length > 0 && (items || []).every((item) => Boolean(item.actual_condition));
-  const hasMismatch = (items || []).some((item) => item.actual_condition !== item.expected_condition);
+  const hasMismatch = (items || []).some(
+    (item) => item.actual_condition !== "New" && item.actual_condition !== item.expected_condition
+  );
   const status: PackageStatus = !allItemsInspected
     ? "scanned"
     : expectedUnits === Number(pkg.total_units) && !hasMismatch
@@ -408,6 +410,25 @@ export async function saveOperationNote(note: string, createdBy: string): Promis
 
   if (error) {
     throw new Error(error.message || "Unable to save note");
+  }
+}
+
+export async function updateOperationNote(id: string, note: string): Promise<void> {
+  const trimmedNote = note.trim();
+  if (!trimmedNote) {
+    throw new Error("Enter a note before saving.");
+  }
+
+  const { error } = await supabaseAdmin.from("operation_notes").update({ note: trimmedNote }).eq("id", id);
+  if (error) {
+    throw new Error(error.message || "Unable to update note");
+  }
+}
+
+export async function deleteOperationNote(id: string): Promise<void> {
+  const { error } = await supabaseAdmin.from("operation_notes").delete().eq("id", id);
+  if (error) {
+    throw new Error(error.message || "Unable to delete note");
   }
 }
 

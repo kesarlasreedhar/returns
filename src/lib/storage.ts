@@ -144,3 +144,29 @@ export async function saveOperationNote(note: string, _createdBy: string): Promi
 export async function getOperationNotes(): Promise<OperationNote[]> {
   return getJson("/api/operation-notes", []);
 }
+
+export async function updateOperationNote(id: string, note: string): Promise<void> {
+  const response = await fetch("/api/operation-notes", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, note })
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error((payload && payload.error) || "Failed to update note.");
+  }
+}
+
+export async function deleteOperationNote(id: string): Promise<void> {
+  const response = await fetch("/api/operation-notes", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id })
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error((payload && payload.error) || "Failed to delete note.");
+  }
+}
