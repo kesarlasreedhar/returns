@@ -23,6 +23,7 @@ export default function CatalogPage(): JSX.Element | null {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [detailsRow, setDetailsRow] = useState<CatalogProduct | null>(null);
 
   useEffect(() => {
     const current = getCurrentUser();
@@ -146,7 +147,11 @@ export default function CatalogPage(): JSX.Element | null {
         <tbody>
           {filteredCatalog.map((row) => (
             <tr key={row.id || row.barcode}>
-              <td>{row.barcode}</td>
+              <td>
+                <button className="tracking-link link-button" type="button" onClick={() => setDetailsRow(row)}>
+                  {row.barcode}
+                </button>
+              </td>
               <td>{row.artist || "-"}</td>
               <td>{row.title || "-"}</td>
               <td>{row.format || "-"}</td>
@@ -216,6 +221,39 @@ export default function CatalogPage(): JSX.Element | null {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {detailsRow ? (
+        <div className="modal-overlay" onClick={() => setDetailsRow(null)}>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-label="Catalog item details" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Catalog Item Details</h3>
+              <button className="btn-secondary" type="button" onClick={() => setDetailsRow(null)}>
+                Close
+              </button>
+            </div>
+
+            <dl className="detail-list">
+              <dt>Barcode</dt>
+              <dd>{detailsRow.barcode}</dd>
+              <dt>Artist</dt>
+              <dd>{detailsRow.artist || "-"}</dd>
+              <dt>Title</dt>
+              <dd>{detailsRow.title || "-"}</dd>
+              <dt>Format</dt>
+              <dd>{detailsRow.format || "-"}</dd>
+              <dt>Media Type</dt>
+              <dd>{detailsRow.mediaType || "-"}</dd>
+            </dl>
+
+            {detailsRow.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img className="report-image-large" src={detailsRow.imageUrl} alt={detailsRow.title || detailsRow.barcode} />
+            ) : (
+              <p className="hint-text">No image available</p>
+            )}
           </div>
         </div>
       ) : null}

@@ -14,6 +14,7 @@ export default function PackageReviewPage(): JSX.Element | null {
   const [items, setItems] = useState<PackageItem[]>([]);
   const [photosByItemId, setPhotosByItemId] = useState<Record<string, InspectionPhoto>>({});
   const [selectedImage, setSelectedImage] = useState("");
+  const [detailsItem, setDetailsItem] = useState<PackageItem | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -165,7 +166,11 @@ export default function PackageReviewPage(): JSX.Element | null {
                 const photo = item.id ? photosByItemId[item.id] : undefined;
                 return (
                   <tr key={`${item.barcode}_${item.orderReference}`}>
-                    <td>{item.barcode}</td>
+                    <td>
+                      <button className="tracking-link link-button" type="button" onClick={() => setDetailsItem(item)}>
+                        {item.barcode}
+                      </button>
+                    </td>
                     <td>{item.title}</td>
                     <td>{item.expectedCondition}</td>
                     <td>{item.actualCondition || "Pending"}</td>
@@ -200,6 +205,44 @@ export default function PackageReviewPage(): JSX.Element | null {
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img className="report-image-large" src={selectedImage} alt="Condition evidence" />
+          </div>
+        </div>
+      ) : null}
+
+      {detailsItem ? (
+        <div className="modal-overlay" onClick={() => setDetailsItem(null)}>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-label="Item details" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Item Details</h3>
+              <button className="btn-secondary" type="button" onClick={() => setDetailsItem(null)}>
+                Close
+              </button>
+            </div>
+
+            <dl className="detail-list">
+              <dt>Barcode</dt>
+              <dd>{detailsItem.barcode}</dd>
+              <dt>Title</dt>
+              <dd>{detailsItem.title}</dd>
+              <dt>Expected</dt>
+              <dd>{detailsItem.expectedCondition}</dd>
+              <dt>Actual</dt>
+              <dd>{detailsItem.actualCondition || "Pending"}</dd>
+              <dt>Reason</dt>
+              <dd>{detailsItem.customerReturnReason || "-"}</dd>
+            </dl>
+
+            {detailsItem.id && photosByItemId[detailsItem.id] ? (
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() => setSelectedImage(photosByItemId[detailsItem.id as string].filePath)}
+              >
+                View Image
+              </button>
+            ) : (
+              <p className="hint-text">No image available</p>
+            )}
           </div>
         </div>
       ) : null}

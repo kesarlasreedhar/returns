@@ -384,6 +384,29 @@ select {
   color: #f7fbff;
 }
 
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+}
+
+.detail-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 12px 0;
+}
+
+.detail-list dt {
+  color: #c0cad8;
+  font-weight: 600;
+}
+
+.detail-list dd {
+  margin: 0;
+}
+
 .status-badge {
   border-radius: 999px;
   padding: 4px 10px;
@@ -830,6 +853,11 @@ button:disabled {
 .mobile-no-evidence { text-align: center; }
 .mobile-evidence-upload { width: 62px; height: 62px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 2px; font-size: 10px; line-height: 1.2; color: #c5d7db; border: 1px dashed #57717a; cursor: pointer; }
 .mobile-evidence-upload input { display: none; }
+.mobile-item-notes { margin-top: 8px; display: grid; gap: 6px; }
+.mobile-item-note { margin: 0; padding: 6px; border: 1px solid #38515a; background: #0d171b; }
+.mobile-item-note small { color: #8fa6ac; }
+.mobile-item-note span { display: block; color: #dfeaec; font-size: 13px; margin-top: 2px; }
+.mobile-item-note-input { width: 100%; font: inherit; padding: 6px; border: 1px solid #38515a; background: #091014; color: #dfeaec; resize: vertical; }
 .mobile-actions-stack { display: flex; flex-direction: column; gap: 10px; margin: 18px 0; }
 .mobile-warning-button { width: 100%; min-height: 50px; border: 1px solid #d49526; background: #e5a93b; color: #1a1204; font-weight: 700; cursor: pointer; }
 .mobile-primary-button.selected, .mobile-warning-button.selected { outline: 2px solid #ffffff; outline-offset: 2px; }

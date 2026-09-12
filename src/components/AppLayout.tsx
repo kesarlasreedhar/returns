@@ -11,7 +11,7 @@ type Props = {
   children: ReactNode;
 };
 
-type MenuIcon = "dashboard" | "upload" | "catalog" | "processing" | "scanner" | "reports" | "reboxing" | "timesheet" | "users" | "notes";
+type MenuIcon = "dashboard" | "upload" | "catalog" | "processing" | "scanner" | "reports" | "reboxing" | "timesheet" | "users" | "notes" | "mobilescan";
 
 type MenuItem = {
   href: string;
@@ -25,7 +25,6 @@ const menuByRole: Record<AppRole, MenuItem[]> = {
     { href: "/uploads", label: "Seller Upload", icon: "upload" },
     { href: "/catalog", label: "Catalog Data", icon: "catalog" },
     { href: "/processing", label: "Processing", icon: "processing" },
-    { href: "/scanner", label: "Scanner", icon: "scanner" },
     { href: "/reboxing", label: "Reboxing", icon: "reboxing" },
     { href: "/timesheet", label: "Timesheet", icon: "timesheet" },
     { href: "/notes", label: "Notes", icon: "notes" },
@@ -43,7 +42,6 @@ const menuByRole: Record<AppRole, MenuItem[]> = {
     { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
     { href: "/catalog", label: "Catalog Data", icon: "catalog" },
     { href: "/processing", label: "Processing", icon: "processing" },
-    { href: "/scanner", label: "Scanner", icon: "scanner" },
     { href: "/reboxing", label: "Reboxing", icon: "reboxing" },
     { href: "/timesheet", label: "Timesheet", icon: "timesheet" },
     { href: "/notes", label: "Notes", icon: "notes" }
@@ -100,6 +98,11 @@ function NavIcon({ name }: { name: MenuIcon }): JSX.Element {
     notes: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M5 3h14v14H9l-4 4V3zm3 5h8V6H8v2zm0 4h6v-2H8v2z" fill="currentColor" />
+      </svg>
+    ),
+    mobilescan: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M7 2h10a1 1 0 011 1v18a1 1 0 01-1 1H7a1 1 0 01-1-1V3a1 1 0 011-1zm0 3v13h10V5H7zm5 14.5a1 1 0 110 2 1 1 0 010-2zM8 8h2v2H8V8zm3 0h5v1h-5V8zm-3 3h8v1H8v-1z" fill="currentColor" />
       </svg>
     )
   };
@@ -187,6 +190,11 @@ export function AppLayout({ title, user, onLogout, children }: Props): JSX.Eleme
             </p>
           </div>
           <div className="topbar-actions">
+            <Link href="/mobile-scanner">
+              <a className="header-icon-btn" aria-label="Mobile scan" title="Mobile scan">
+                <NavIcon name="mobilescan" />
+              </a>
+            </Link>
             <button className="header-icon-btn" type="button" onClick={() => setNotesOpen(true)} aria-label="Add note" title="Add note">
               <NavIcon name="notes" />
             </button>

@@ -396,7 +396,7 @@ export async function getTimesheetEntries(): Promise<TimesheetEntry[]> {
   }));
 }
 
-export async function saveOperationNote(note: string, createdBy: string): Promise<void> {
+export async function saveOperationNote(note: string, createdBy: string, packageItemId?: string): Promise<void> {
   const trimmedNote = note.trim();
   if (!trimmedNote) {
     throw new Error("Enter a note before saving.");
@@ -405,7 +405,8 @@ export async function saveOperationNote(note: string, createdBy: string): Promis
   const userId = await resolveUserId(createdBy);
   const { error } = await supabaseAdmin.from("operation_notes").insert({
     note: trimmedNote,
-    created_by: userId
+    created_by: userId,
+    package_item_id: packageItemId || null
   });
 
   if (error) {
@@ -435,7 +436,7 @@ export async function deleteOperationNote(id: string): Promise<void> {
 export async function getOperationNotes(): Promise<OperationNote[]> {
   const { data, error } = await supabaseAdmin
     .from("operation_notes")
-    .select("id, note, created_at, app_users(full_name, email)")
+    .select("id, note, created_at, package_item_id, app_users(full_name, email)")
     .order("created_at", { ascending: false })
     .limit(200);
 
@@ -447,6 +448,7 @@ export async function getOperationNotes(): Promise<OperationNote[]> {
     id: row.id,
     note: row.note,
     createdBy: (row.app_users as any)?.full_name || (row.app_users as any)?.email || "Unknown",
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    packageItemId: row.package_item_id || undefined
   }));
 }

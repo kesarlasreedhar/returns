@@ -5,14 +5,16 @@ import {
   getCatalog,
   evaluatePackageRefundStatus,
   getInspectionPhotos,
+  getOperationNotes,
   getPackageItems,
   getPackages,
   markPackageScanned,
   saveInspectionPhoto,
+  saveOperationNote,
   updateItemCondition,
   updatePackageStatus
 } from "@/lib/storage";
-import { AppUser, CatalogProduct, InspectionPhoto, PackageItem, PackageSummary } from "@/types/domain";
+import { AppUser, CatalogProduct, InspectionPhoto, OperationNote, PackageItem, PackageSummary } from "@/types/domain";
 import { findKnownTrackingNumber, startZxingVideoScan, stopZxingVideoScan, ZxingControls } from "@/lib/zxingScanner";
 
 type WorkflowStep = "package" | "inspect" | "evidence" | "complete";
@@ -31,8 +33,12 @@ export default function MobileScannerPage(): JSX.Element | null {
   const [items, setItems] = useState<PackageItem[]>([]);
   const [catalog, setCatalog] = useState<Record<string, CatalogProduct>>({});
   const [photosByItemId, setPhotosByItemId] = useState<Record<string, InspectionPhoto>>({});
+  const [notesByItemId, setNotesByItemId] = useState<Record<string, OperationNote[]>>({});
+  const [noteDraftByItemId, setNoteDraftByItemId] = useState<Record<string, string>>({});
+  const [isSavingNoteForItem, setIsSavingNoteForItem] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<PackageItem | null>(null);
   const [selectedImage, setSelectedImage] = useState("");
+  const [detailsItem, setDetailsItem] = useState<PackageItem | null>(null);
   const [condition, setCondition] = useState("Opened");
   const [evidenceDataUrl, setEvidenceDataUrl] = useState("");
   const [notice, setNotice] = useState("");
@@ -122,7 +128,12 @@ export default function MobileScannerPage(): JSX.Element | null {
     setIsSaving(true);
     setError("");
     try {
-      const [allPackages, allItems, inspectionPhotos] = await Promise.all([getPackages(), getPackageItems(), getInspectionPhotos()]);
+      const [allPackages, allItems, inspectionPhotos, allNotes] = await Promise.all([
+        getPackages(),
+        getPackageItems(),
+        getInspectionPhotos(),
+        getOperationNotes()
+      ]);
       setKnownPackages(allPackages);
       const packageToInspect = allPackages.find((item) => item.returnTrackingNumber === tracking) || null;
       const packageItems = allItems.filter((item) => item.returnTrackingNumber === tracking);
@@ -139,6 +150,11 @@ export default function MobileScannerPage(): JSX.Element | null {
       setItems(packageItems);
       setPhotosByItemId(inspectionPhotos.reduce<Record<string, InspectionPhoto>>((result, photo) => {
         if (!result[photo.packageItemId]) result[photo.packageItemId] = photo;
+        return result;
+      }, {}));
+      setNotesByItemId(allNotes.reduce<Record<string, OperationNote[]>>((result, note) => {
+        if (!note.packageItemId) return result;
+        (result[note.packageItemId] = result[note.packageItemId] || []).push(note);
         return result;
       }, {}));
       chooseNextItem(packageItems);
@@ -270,6 +286,54 @@ export default function MobileScannerPage(): JSX.Element | null {
     setError("");
   }
 
+  async function updateActualConditionForItem(item: PackageItem, nextCondition: string): Promise<void> {
+    if (!item.id || !activePackage) {
+      return;
+    }
+    setError("");
+    try {
+      const nowIso = new Date().toISOString();
+      await updateItemCondition(item.id, nextCondition);
+      const refundStatus = await evaluatePackageRefundStatus(activePackage.returnTrackingNumber);
+      const updatedItems = items.map((candidate) =>
+        candidate === item ? { ...candidate, actualCondition: nextCondition, updatedAt: nowIso } : candidate
+      );
+      setItems(updatedItems);
+      setActivePackage((prev) => (prev ? { ...prev, status: refundStatus, updatedAt: nowIso } : null));
+      setNotice(`${item.barcode} updated to ${nextCondition}.`);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update the item condition.");
+    }
+  }
+
+  async function saveNoteForItem(item: PackageItem): Promise<void> {
+    if (!item.id || !user) {
+      return;
+    }
+    const draft = (noteDraftByItemId[item.id] || "").trim();
+    if (!draft) {
+      return;
+    }
+    setIsSavingNoteForItem(item.id);
+    setError("");
+    try {
+      await saveOperationNote(draft, user.email, item.id);
+      const itemId = item.id;
+      setNotesByItemId((prev) => ({
+        ...prev,
+        [itemId]: [
+          { id: `${itemId}-${Date.now()}`, note: draft, createdBy: user.name, createdAt: new Date().toISOString(), packageItemId: itemId },
+          ...(prev[itemId] || [])
+        ]
+      }));
+      setNoteDraftByItemId((prev) => ({ ...prev, [itemId]: "" }));
+    } catch (noteError) {
+      setError(noteError instanceof Error ? noteError.message : "Unable to save the note.");
+    } finally {
+      setIsSavingNoteForItem(null);
+    }
+  }
+
   async function uploadEvidenceForItem(item: PackageItem, file: File): Promise<void> {
     if (!item.id || !user) {
       return;
@@ -395,7 +459,7 @@ export default function MobileScannerPage(): JSX.Element | null {
           <p className="mobile-scanner-kicker">Returns Operations</p>
           <h1>Mobile Scanner</h1>
         </div>
-        <button className="mobile-text-button" type="button" onClick={() => router.push("/scanner")}>Desktop</button>
+        <button className="mobile-text-button" type="button" onClick={() => router.push("/processing")}>Desktop</button>
       </header>
 
       <ol className="mobile-steps" aria-label="Inspection progress">
@@ -534,6 +598,7 @@ export default function MobileScannerPage(): JSX.Element | null {
             <p><strong>Tracking:</strong> {activePackage.returnTrackingNumber}</p>
             <p><strong>Carrier:</strong> {activePackage.carrier || "Not recorded"}</p>
             <p><strong>Order reference:</strong> {activePackage.orderReferences || "Not recorded"}</p>
+            <p><strong>Barcodes:</strong> {items.map((item) => item.barcode).join(", ") || "Not recorded"}</p>
             <p><strong>Scan Completed:</strong> <strong>{formatScanDate(activePackage.updatedAt || activePackage.createdAt)}</strong></p>
             <p>
               <strong>Status:</strong>{" "}
@@ -559,12 +624,61 @@ export default function MobileScannerPage(): JSX.Element | null {
                   <div>
                     <strong>{item.title || product?.title || "Item"}</strong>
                     <span>{item.artist || product?.artist || ""}</span>
-                    <small>Barcode: <strong>{item.barcode}</strong></small>
+                    <small>
+                      Barcode:{" "}
+                      <button type="button" className="tracking-link link-button" onClick={() => setDetailsItem(item)}>
+                        {item.barcode}
+                      </button>
+                    </small>
                     <small>Expected: {item.expectedCondition || "Not specified"}</small>
-                    <small>Actual: {item.actualCondition || "Pending"}</small>
+                    <label className="mobile-actual-condition-label" htmlFor={`mobileActualCondition-${item.barcode}-${item.orderReference}`}>
+                      Actual
+                      <select
+                        id={`mobileActualCondition-${item.barcode}-${item.orderReference}`}
+                        value={item.actualCondition || ""}
+                        onChange={(event) => void updateActualConditionForItem(item, event.target.value)}
+                      >
+                        {!item.actualCondition ? <option value="">Pending</option> : null}
+                        {conditions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     {item.actualCondition && (item.updatedAt || item.createdAt) ? (
                       <small>Scan completed: <strong>{formatScanDate(item.updatedAt || item.createdAt)}</strong></small>
                     ) : null}
+                    <div className="mobile-item-notes">
+                      {(item.id && notesByItemId[item.id] ? notesByItemId[item.id] : []).map((note) => (
+                        <p className="mobile-item-note" key={note.id}>
+                          <small>
+                            <strong>{note.createdBy}</strong> · {formatScanDate(note.createdAt)}
+                          </small>
+                          <span>{note.note}</span>
+                        </p>
+                      ))}
+                      <textarea
+                        className="mobile-item-note-input"
+                        placeholder="Add a note for this item"
+                        rows={2}
+                        value={(item.id && noteDraftByItemId[item.id]) || ""}
+                        onChange={(event) => {
+                          const itemId = item.id;
+                          if (!itemId) return;
+                          const value = event.target.value;
+                          setNoteDraftByItemId((prev) => ({ ...prev, [itemId]: value }));
+                        }}
+                      />
+                      <button
+                        className="mobile-secondary-button"
+                        type="button"
+                        disabled={!item.id || isSavingNoteForItem === item.id || !(item.id && noteDraftByItemId[item.id]?.trim())}
+                        onClick={() => void saveNoteForItem(item)}
+                      >
+                        {item.id && isSavingNoteForItem === item.id ? "Saving..." : "Save Note"}
+                      </button>
+                    </div>
                   </div>
                   {photo ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -631,6 +745,46 @@ export default function MobileScannerPage(): JSX.Element | null {
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img className="report-image-large" src={selectedImage} alt="Condition evidence" />
+          </div>
+        </div>
+      ) : null}
+
+      {detailsItem ? (
+        <div className="modal-overlay" onClick={() => setDetailsItem(null)}>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-label="Item details" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Item Details</h3>
+              <button className="btn-secondary" type="button" onClick={() => setDetailsItem(null)}>
+                Close
+              </button>
+            </div>
+
+            <dl className="detail-list">
+              <dt>Barcode</dt>
+              <dd>{detailsItem.barcode}</dd>
+              <dt>Title</dt>
+              <dd>{detailsItem.title || catalog[detailsItem.barcode]?.title || "-"}</dd>
+              <dt>Artist</dt>
+              <dd>{detailsItem.artist || catalog[detailsItem.barcode]?.artist || "-"}</dd>
+              <dt>Expected</dt>
+              <dd>{detailsItem.expectedCondition || "Not specified"}</dd>
+              <dt>Actual</dt>
+              <dd>{detailsItem.actualCondition || "Pending"}</dd>
+              <dt>Reason</dt>
+              <dd>{detailsItem.customerReturnReason || "-"}</dd>
+            </dl>
+
+            {detailsItem.id && photosByItemId[detailsItem.id] ? (
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() => setSelectedImage(photosByItemId[detailsItem.id as string].filePath)}
+              >
+                View Image
+              </button>
+            ) : (
+              <p className="hint-text">No image available</p>
+            )}
           </div>
         </div>
       ) : null}

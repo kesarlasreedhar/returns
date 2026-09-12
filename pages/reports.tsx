@@ -5,7 +5,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getCurrentUser, logout } from "@/lib/auth";
 import { getInspectionPhotos, getPackageItems, getPackages } from "@/lib/storage";
-import { AppUser, InspectionPhoto, PackageItem } from "@/types/domain";
+import { AppUser, InspectionPhoto, PackageItem, PackageStatus } from "@/types/domain";
 
 type ReportData = {
   totalPackages: number;
@@ -26,10 +26,12 @@ export default function ReportsPage(): JSX.Element | null {
   const [user, setUser] = useState<AppUser | null>(null);
   const [items, setItems] = useState<PackageItem[]>([]);
   const [photosByItemId, setPhotosByItemId] = useState<Record<string, InspectionPhoto>>({});
-  const [showOnlyMismatches, setShowOnlyMismatches] = useState(true);
   const [selectedCondition, setSelectedCondition] = useState<"all" | "Damaged" | "Opened" | "New">("all");
   const [orderRefSearch, setOrderRefSearch] = useState("");
+  const [trackingSearch, setTrackingSearch] = useState("");
+  const [selectedStatus, setSelectedStatus] = useState<"all" | PackageStatus>("all");
   const [selectedImage, setSelectedImage] = useState("");
+  const [detailsItem, setDetailsItem] = useState<PackageItem | null>(null);
   const [report, setReport] = useState<ReportData>({
     totalPackages: 0,
     totalItems: 0,
@@ -83,13 +85,21 @@ export default function ReportsPage(): JSX.Element | null {
     void loadReport();
   }, [router]);
 
+  const statusByTracking = useMemo(() => {
+    const map: Record<string, PackageStatus> = {};
+    for (const pkg of packages) {
+      map[pkg.returnTrackingNumber] = pkg.status;
+    }
+    return map;
+  }, [packages]);
+
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
-      if (showOnlyMismatches && (!item.actualCondition || item.actualCondition === item.expectedCondition)) {
+      if (selectedCondition !== "all" && item.actualCondition !== selectedCondition) {
         return false;
       }
 
-      if (selectedCondition !== "all" && item.actualCondition !== selectedCondition) {
+      if (selectedStatus !== "all" && statusByTracking[item.returnTrackingNumber] !== selectedStatus) {
         return false;
       }
 
@@ -98,9 +108,14 @@ export default function ReportsPage(): JSX.Element | null {
         return false;
       }
 
+      const normalizedTrackingSearch = trackingSearch.trim().toUpperCase();
+      if (normalizedTrackingSearch && !(item.returnTrackingNumber || "").toUpperCase().includes(normalizedTrackingSearch)) {
+        return false;
+      }
+
       return Boolean(item.actualCondition);
     });
-  }, [items, selectedCondition, showOnlyMismatches, orderRefSearch]);
+  }, [items, selectedCondition, selectedStatus, statusByTracking, orderRefSearch, trackingSearch]);
 
   if (!user) {
     return null;
@@ -179,11 +194,13 @@ export default function ReportsPage(): JSX.Element | null {
       <h2>Condition Review Filters</h2>
       <section className="panel-grid three-column">
         <article className="panel">
-          <label htmlFor="mismatchOnly">Show only mismatches</label>
-          <select id="mismatchOnly" value={showOnlyMismatches ? "yes" : "no"} onChange={(event) => setShowOnlyMismatches(event.target.value === "yes")}>
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
-          </select>
+          <label htmlFor="trackingSearch">Tracking #</label>
+          <input
+            id="trackingSearch"
+            value={trackingSearch}
+            onChange={(event) => setTrackingSearch(event.target.value)}
+            placeholder="Search tracking #"
+          />
         </article>
 
         <article className="panel">
@@ -193,6 +210,18 @@ export default function ReportsPage(): JSX.Element | null {
             <option value="Damaged">Damaged</option>
             <option value="Opened">Opened</option>
             <option value="New">New</option>
+          </select>
+        </article>
+
+        <article className="panel">
+          <label htmlFor="statusFilter">Status</label>
+          <select id="statusFilter" value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value as "all" | PackageStatus)}>
+            <option value="all">All</option>
+            <option value="open">Open</option>
+            <option value="scanned">Scanned</option>
+            <option value="ready_for_refund">Ready for Refund</option>
+            <option value="review_for_refund">Review for Refund</option>
+            <option value="closed">Closed</option>
           </select>
         </article>
 
@@ -221,12 +250,14 @@ export default function ReportsPage(): JSX.Element | null {
             <th>Expected</th>
             <th>Actual</th>
             <th>Reason</th>
+            <th>Status</th>
             <th>Evidence</th>
           </tr>
         </thead>
         <tbody>
           {filteredItems.map((item) => {
             const photo = item.id ? photosByItemId[item.id] : undefined;
+            const packageStatus = statusByTracking[item.returnTrackingNumber];
             return (
               <tr key={`${item.returnTrackingNumber}_${item.barcode}_${item.orderReference}`}>
                 <td>
@@ -235,10 +266,15 @@ export default function ReportsPage(): JSX.Element | null {
                   </Link>
                 </td>
                 <td>{item.orderReference || "-"}</td>
-                <td>{item.barcode}</td>
+                <td>
+                  <button className="tracking-link link-button" type="button" onClick={() => setDetailsItem(item)}>
+                    {item.barcode}
+                  </button>
+                </td>
                 <td>{item.expectedCondition}</td>
                 <td>{item.actualCondition || "Pending"}</td>
                 <td>{item.customerReturnReason || "-"}</td>
+                <td>{packageStatus ? <StatusBadge status={packageStatus} /> : "-"}</td>
                 <td>
                   {photo ? (
                     <button className="btn-secondary" type="button" onClick={() => setSelectedImage(photo.filePath)}>
@@ -265,6 +301,54 @@ export default function ReportsPage(): JSX.Element | null {
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img className="report-image-large" src={selectedImage} alt="Condition evidence" />
+          </div>
+        </div>
+      ) : null}
+
+      {detailsItem ? (
+        <div className="modal-overlay" onClick={() => setDetailsItem(null)}>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-label="Item details" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Item Details</h3>
+              <button className="btn-secondary" type="button" onClick={() => setDetailsItem(null)}>
+                Close
+              </button>
+            </div>
+
+            <dl className="detail-list">
+              <dt>Tracking #</dt>
+              <dd>{detailsItem.returnTrackingNumber}</dd>
+              <dt>Order #</dt>
+              <dd>{detailsItem.orderReference || "-"}</dd>
+              <dt>Barcode</dt>
+              <dd>{detailsItem.barcode}</dd>
+              <dt>Expected</dt>
+              <dd>{detailsItem.expectedCondition}</dd>
+              <dt>Actual</dt>
+              <dd>{detailsItem.actualCondition || "Pending"}</dd>
+              <dt>Reason</dt>
+              <dd>{detailsItem.customerReturnReason || "-"}</dd>
+              <dt>Status</dt>
+              <dd>
+                {statusByTracking[detailsItem.returnTrackingNumber] ? (
+                  <StatusBadge status={statusByTracking[detailsItem.returnTrackingNumber]} />
+                ) : (
+                  "-"
+                )}
+              </dd>
+            </dl>
+
+            {detailsItem.id && photosByItemId[detailsItem.id] ? (
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() => setSelectedImage(photosByItemId[detailsItem.id as string].filePath)}
+              >
+                View Image
+              </button>
+            ) : (
+              <p className="hint-text">No image available</p>
+            )}
           </div>
         </div>
       ) : null}

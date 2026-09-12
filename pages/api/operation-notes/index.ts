@@ -4,7 +4,8 @@ import { requireSession } from "@/lib/server/session";
 import { deleteOperationNote, getOperationNotes, saveOperationNote, updateOperationNote } from "@/lib/server/data";
 
 const postSchema = z.object({
-  note: z.string().min(1)
+  note: z.string().min(1),
+  packageItemId: z.string().min(1).optional()
 });
 
 const putSchema = z.object({
@@ -39,7 +40,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-      await saveOperationNote(parsed.data.note, session.email);
+      await saveOperationNote(parsed.data.note, session.email, parsed.data.packageItemId);
       res.status(200).json({ ok: true });
     } catch (error) {
       res.status(500).json({ error: error instanceof Error ? error.message : "Failed to save note." });

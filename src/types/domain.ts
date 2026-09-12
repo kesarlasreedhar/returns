@@ -96,4 +96,5 @@ export type OperationNote = {
   note: string;
   createdBy: string;
   createdAt: string;
+  packageItemId?: string;
 };

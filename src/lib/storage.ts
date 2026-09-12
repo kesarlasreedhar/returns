@@ -137,8 +137,8 @@ export async function getTimesheetEntries(): Promise<TimesheetEntry[]> {
   return getJson("/api/timesheet-entries", []);
 }
 
-export async function saveOperationNote(note: string, _createdBy: string): Promise<void> {
-  await postJson("/api/operation-notes", { note });
+export async function saveOperationNote(note: string, _createdBy: string, packageItemId?: string): Promise<void> {
+  await postJson("/api/operation-notes", { note, packageItemId });
 }
 
 export async function getOperationNotes(): Promise<OperationNote[]> {
