@@ -41,7 +41,7 @@ export default function DashboardPage(): JSX.Element | null {
       setStats({
         open: packages.filter((pkg) => pkg.status === "open").length,
         scanned: packages.filter((pkg) => pkg.status === "scanned").length,
-        readyForRefund: packages.filter((pkg) => pkg.status === "ready_for_refund").length,
+        readyForRefund: packages.filter((pkg) => pkg.status === "automatic_refund").length,
         reviewForRefund: packages.filter((pkg) => pkg.status === "review_for_refund").length,
         closed: packages.filter((pkg) => pkg.status === "closed").length,
         mismatches: items.filter((item) => item.actualCondition && item.actualCondition !== item.expectedCondition).length
@@ -66,7 +66,7 @@ export default function DashboardPage(): JSX.Element | null {
       <div className="stats-grid">
         <StatCard label="Open" value={stats.open} />
         <StatCard label="Scanned" value={stats.scanned} />
-        <StatCard label="Ready for Refund" value={stats.readyForRefund} />
+        <StatCard label="Automatic Refund" value={stats.readyForRefund} />
         <StatCard label="Review for Refund" value={stats.reviewForRefund} />
         <StatCard label="Closed" value={stats.closed} />
         <StatCard label="Condition Mismatch" value={stats.mismatches} />

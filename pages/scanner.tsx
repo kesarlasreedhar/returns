@@ -409,7 +409,7 @@ export default function ScannerPage(): JSX.Element | null {
       }
 
       await refreshTrackingContext(tracking);
-      setScanMessage(refundStatus === "scanned" ? "Item updated. Package remains scanned until all items are inspected." : `Item updated. Package is ${refundStatus === "ready_for_refund" ? "ready for refund" : "ready for refund review"}.`);
+      setScanMessage(refundStatus === "scanned" ? "Item updated. Package remains scanned until all items are inspected." : `Item updated. Package is ${refundStatus === "automatic_refund" ? "automatic refund" : "ready for refund review"}.`);
     } catch (error) {
       const message = getErrorMessage(error, "Failed to update item or save evidence.");
       setScanMessage(message);
@@ -434,11 +434,11 @@ export default function ScannerPage(): JSX.Element | null {
       const refundStatus = await evaluatePackageRefundStatus(tracking);
       await refreshTrackingContext(tracking);
       if (evidenceDataUrl && current?.id) {
-        setScanMessage(`Package ${refundStatus === "ready_for_refund" ? "is ready for refund" : "needs refund review"}; evidence saved.`);
+        setScanMessage(`Package ${refundStatus === "automatic_refund" ? "is automatic refund" : "needs refund review"}; evidence saved.`);
       } else {
-        setScanMessage(`Package ${refundStatus === "ready_for_refund" ? "is ready for refund" : "needs refund review"}.`);
+        setScanMessage(`Package ${refundStatus === "automatic_refund" ? "is automatic refund" : "needs refund review"}.`);
       }
-      setProcessedNotice(`Saved: package ${tracking} is now ${refundStatus === "ready_for_refund" ? "Ready for Refund" : refundStatus === "review_for_refund" ? "Review for Refund" : "Scanned"}.`);
+      setProcessedNotice(`Saved: package ${tracking} is now ${refundStatus === "automatic_refund" ? "Automatic Refund" : refundStatus === "review_for_refund" ? "Review for Refund" : "Scanned"}.`);
       setEvidenceDataUrl("");
       setEvidencePreview("");
       stopEvidenceCamera();
@@ -485,7 +485,7 @@ export default function ScannerPage(): JSX.Element | null {
 
     const refundStatus = await evaluatePackageRefundStatus(tracking);
     await refreshTrackingContext(tracking);
-    setScanMessage(`Updated ${selected.length} selected items. Package is ${refundStatus === "scanned" ? "still scanned" : refundStatus === "ready_for_refund" ? "ready for refund" : "ready for refund review"}.`);
+    setScanMessage(`Updated ${selected.length} selected items. Package is ${refundStatus === "scanned" ? "still scanned" : refundStatus === "automatic_refund" ? "automatic refund" : "ready for refund review"}.`);
   }
 
   async function applyConditionToAll(): Promise<void> {
@@ -508,7 +508,7 @@ export default function ScannerPage(): JSX.Element | null {
 
     const refundStatus = await evaluatePackageRefundStatus(tracking);
     await refreshTrackingContext(tracking);
-    setScanMessage(`Updated all ${itemsForTracking.length} items. Package is ${refundStatus === "ready_for_refund" ? "ready for refund" : "ready for refund review"}.`);
+    setScanMessage(`Updated all ${itemsForTracking.length} items. Package is ${refundStatus === "automatic_refund" ? "automatic refund" : "ready for refund review"}.`);
   }
 
   if (!user) {
@@ -608,6 +608,8 @@ export default function ScannerPage(): JSX.Element | null {
             <option>New</option>
             <option>Opened</option>
             <option>Damaged</option>
+            <option>Missing</option>
+            <option>Partial Return</option>
           </select>
 
           <label htmlFor="evidenceUpload">Mismatch/Damaged Evidence Image</label>

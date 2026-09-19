@@ -9,7 +9,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("set"),
     returnTrackingNumber: z.string().min(1),
-    status: z.enum(["open", "scanned", "ready_for_refund", "review_for_refund", "closed"])
+    status: z.enum(["open", "scanned", "automatic_refund", "review_for_refund", "closed"])
   })
 ]);
 

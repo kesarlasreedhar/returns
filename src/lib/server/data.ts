@@ -264,7 +264,7 @@ export async function evaluatePackageRefundStatus(returnTrackingNumber: string, 
   const status: PackageStatus = !allItemsInspected
     ? "scanned"
     : expectedUnits === Number(pkg.total_units) && !hasMismatch
-      ? "ready_for_refund"
+      ? "automatic_refund"
       : "review_for_refund";
 
   await updatePackageStatus(returnTrackingNumber, status, changedBy);

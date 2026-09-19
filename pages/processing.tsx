@@ -34,7 +34,7 @@ export default function ProcessingPage(): JSX.Element | null {
   }, [router]);
 
   const statusOptions = useMemo(
-    () => ["open", "scanned", "ready_for_refund", "review_for_refund", "closed"] as PackageStatus[],
+    () => ["open", "scanned", "automatic_refund", "review_for_refund", "closed"] as PackageStatus[],
     []
   );
 

@@ -64,7 +64,7 @@ export default function PackageReviewPage(): JSX.Element | null {
     );
   }
 
-  async function advanceStatus(nextStatus: "ready_for_refund" | "closed"): Promise<void> {
+  async function advanceStatus(nextStatus: "automatic_refund" | "closed"): Promise<void> {
     if (!pkg) return;
     setIsUpdating(true);
     setError("");
@@ -72,7 +72,7 @@ export default function PackageReviewPage(): JSX.Element | null {
     try {
       await updatePackageStatus(pkg.returnTrackingNumber, nextStatus);
       await loadData();
-      setNotice(nextStatus === "ready_for_refund" ? "Marked ready for refund." : "Package closed.");
+      setNotice(nextStatus === "automatic_refund" ? "Marked as automatic refund." : "Package closed.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update status.");
     } finally {
@@ -125,17 +125,17 @@ export default function PackageReviewPage(): JSX.Element | null {
 
           <section className="panel">
             <h2>
-              Status: <StatusBadge status={pkg.status} />
+              Status: <StatusBadge status={pkg.status} /> <small className="hint-text">{formatScanDate(pkg.updatedAt)}</small>
             </h2>
             {pkg.status === "review_for_refund" ? (
               <>
                 <p className="hint-text">Some items don&apos;t match the expected condition. Review the evidence below, then approve for refund.</p>
-                <button className="btn-primary" type="button" disabled={isUpdating} onClick={() => void advanceStatus("ready_for_refund")}>
-                  {isUpdating ? "Updating..." : "Mark Ready for Refund"}
+                <button className="btn-primary" type="button" disabled={isUpdating} onClick={() => void advanceStatus("automatic_refund")}>
+                  {isUpdating ? "Updating..." : "Mark Automatic Refund"}
                 </button>
               </>
             ) : null}
-            {pkg.status === "ready_for_refund" ? (
+            {pkg.status === "automatic_refund" ? (
               <>
                 <p className="hint-text">This package is approved for refund. Close it out once the refund has been issued.</p>
                 <button className="btn-primary" type="button" disabled={isUpdating} onClick={() => void advanceStatus("closed")}>
@@ -248,4 +248,19 @@ export default function PackageReviewPage(): JSX.Element | null {
       ) : null}
     </AppLayout>
   );
+}
+
+function formatScanDate(isoString: string | undefined | null): string {
+  if (!isoString) return "—";
+  try {
+    return new Date(isoString).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  } catch {
+    return isoString;
+  }
 }

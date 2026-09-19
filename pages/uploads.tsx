@@ -46,7 +46,7 @@ export default function UploadsPage(): JSX.Element | null {
       setBatches(recent);
       setStats({
         uploadedRows: recent.reduce((sum, batch) => sum + batch.rowCount, 0),
-        processedPackages: pkgs.filter((pkg) => pkg.status === "ready_for_refund" || pkg.status === "review_for_refund").length,
+        processedPackages: pkgs.filter((pkg) => pkg.status === "automatic_refund" || pkg.status === "review_for_refund").length,
         processedItems: items.filter((item) => Boolean(item.actualCondition)).length
       });
     }

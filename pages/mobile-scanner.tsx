@@ -19,7 +19,7 @@ import { findKnownTrackingNumber, startZxingVideoScan, stopZxingVideoScan, Zxing
 
 type WorkflowStep = "package" | "inspect" | "evidence" | "complete";
 
-const conditions = ["New", "Opened", "Damaged"];
+const conditions = ["New", "Opened", "Damaged", "Missing", "Partial Return"];
 
 export default function MobileScannerPage(): JSX.Element | null {
   const router = useRouter();
@@ -234,7 +234,7 @@ export default function MobileScannerPage(): JSX.Element | null {
       setNotice(
         remainingItem
           ? `${selectedItem.barcode} saved as ${condition}.`
-          : `${selectedItem.barcode} saved as ${condition}. All items inspected. Select Ready for Refund or Ready for Review below.`
+          : `${selectedItem.barcode} saved as ${condition}. All items inspected. Select Automatic Refund or Ready for Review below.`
       );
       setEvidenceDataUrl("");
 
@@ -256,7 +256,7 @@ export default function MobileScannerPage(): JSX.Element | null {
     }
   }
 
-  async function setPackageRefundStatus(nextStatus: "ready_for_refund" | "review_for_refund"): Promise<void> {
+  async function setPackageRefundStatus(nextStatus: "automatic_refund" | "review_for_refund"): Promise<void> {
     if (!activePackage) {
       return;
     }
@@ -269,7 +269,7 @@ export default function MobileScannerPage(): JSX.Element | null {
     try {
       const nowIso = new Date().toISOString();
       await updatePackageStatus(activePackage.returnTrackingNumber, nextStatus);
-      const label = nextStatus === "ready_for_refund" ? "Ready for Refund" : "Ready for Review";
+      const label = nextStatus === "automatic_refund" ? "Automatic Refund" : "Ready for Review";
       setNotice(`${activePackage.returnTrackingNumber} status set to ${label}.`);
       setActivePackage({ ...activePackage, status: nextStatus, updatedAt: nowIso });
     } catch (saveError) {
@@ -592,7 +592,7 @@ export default function MobileScannerPage(): JSX.Element | null {
       {step === "complete" && activePackage ? (
         <section className="mobile-scanner-stage mobile-complete-stage">
           <p className="mobile-step-label">Step 4 of 4</p>
-          <h2>{activePackage.status === "ready_for_refund" ? "Ready for Refund" : activePackage.status === "review_for_refund" ? "Ready for Review" : "Package Inspection Complete"}</h2>
+          <h2>{activePackage.status === "automatic_refund" ? "Automatic Refund" : activePackage.status === "review_for_refund" ? "Ready for Review" : "Package Inspection Complete"}</h2>
           <p>{completedCount} of {items.length} items have been recorded.</p>
           <div className="mobile-completed-package-details">
             <p><strong>Tracking:</strong> {activePackage.returnTrackingNumber}</p>
@@ -603,8 +603,8 @@ export default function MobileScannerPage(): JSX.Element | null {
             <p>
               <strong>Status:</strong>{" "}
               <span className={`status-pill ${activePackage.status}`}>
-                {activePackage.status === "ready_for_refund"
-                  ? "Ready for Refund"
+                {activePackage.status === "automatic_refund"
+                  ? "Automatic Refund"
                   : activePackage.status === "review_for_refund"
                     ? "Ready for Review"
                     : "Inspection In Progress"}
@@ -704,12 +704,12 @@ export default function MobileScannerPage(): JSX.Element | null {
           </div>
           <div className="mobile-actions-stack">
             <button
-              className={`mobile-primary-button ${activePackage.status === "ready_for_refund" ? "selected" : ""}`}
+              className={`mobile-primary-button ${activePackage.status === "automatic_refund" ? "selected" : ""}`}
               type="button"
-              onClick={() => void setPackageRefundStatus("ready_for_refund")}
+              onClick={() => void setPackageRefundStatus("automatic_refund")}
               disabled={isSaving || completedCount !== items.length}
             >
-              {isSaving ? "Updating..." : activePackage.status === "ready_for_refund" ? "✓ Ready for Refund" : "Ready for Refund"}
+              {isSaving ? "Updating..." : activePackage.status === "automatic_refund" ? "✓ Automatic Refund" : "Automatic Refund"}
             </button>
 
             <button

@@ -21,7 +21,7 @@ const packageRowSchema = z.object({
   expectedConditions: z.string().default(""),
   orderReferences: z.string().default(""),
   earliestReturnRequested: z.string().default(""),
-  status: z.enum(["open", "scanned", "ready_for_refund", "review_for_refund", "closed"]),
+  status: z.enum(["open", "scanned", "automatic_refund", "review_for_refund", "closed"]),
   updatedAt: z.string().default("")
 });
 

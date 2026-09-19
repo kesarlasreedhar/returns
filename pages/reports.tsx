@@ -4,8 +4,8 @@ import { useRouter } from "next/router";
 import { AppLayout } from "@/components/AppLayout";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getCurrentUser, logout } from "@/lib/auth";
-import { getInspectionPhotos, getPackageItems, getPackages } from "@/lib/storage";
-import { AppUser, InspectionPhoto, PackageItem, PackageStatus } from "@/types/domain";
+import { getInspectionPhotos, getOperationNotes, getPackageItems, getPackages } from "@/lib/storage";
+import { AppUser, InspectionPhoto, OperationNote, PackageItem, PackageStatus } from "@/types/domain";
 
 type ReportData = {
   totalPackages: number;
@@ -26,7 +26,8 @@ export default function ReportsPage(): JSX.Element | null {
   const [user, setUser] = useState<AppUser | null>(null);
   const [items, setItems] = useState<PackageItem[]>([]);
   const [photosByItemId, setPhotosByItemId] = useState<Record<string, InspectionPhoto>>({});
-  const [selectedCondition, setSelectedCondition] = useState<"all" | "Damaged" | "Opened" | "New">("all");
+  const [notesByItemId, setNotesByItemId] = useState<Record<string, OperationNote[]>>({});
+  const [selectedCondition, setSelectedCondition] = useState<"all" | "Damaged" | "Opened" | "New" | "Missing" | "Partial Return">("all");
   const [orderRefSearch, setOrderRefSearch] = useState("");
   const [trackingSearch, setTrackingSearch] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<"all" | PackageStatus>("all");
@@ -57,6 +58,7 @@ export default function ReportsPage(): JSX.Element | null {
       const pkgs = await getPackages();
       const itemRows = await getPackageItems();
       const photos = await getInspectionPhotos();
+      const notes = await getOperationNotes();
       setPackages(pkgs);
       setItems(itemRows);
 
@@ -68,6 +70,14 @@ export default function ReportsPage(): JSX.Element | null {
       }
       setPhotosByItemId(photoMap);
 
+      setNotesByItemId(
+        notes.reduce<Record<string, OperationNote[]>>((result, note) => {
+          if (!note.packageItemId) return result;
+          (result[note.packageItemId] = result[note.packageItemId] || []).push(note);
+          return result;
+        }, {})
+      );
+
       setReport({
         totalPackages: pkgs.length,
         totalItems: itemRows.length,
@@ -76,7 +86,7 @@ export default function ReportsPage(): JSX.Element | null {
         byStatus: {
           open: pkgs.filter((pkg) => pkg.status === "open").length,
           scanned: pkgs.filter((pkg) => pkg.status === "scanned").length,
-          readyForRefund: pkgs.filter((pkg) => pkg.status === "ready_for_refund").length,
+          readyForRefund: pkgs.filter((pkg) => pkg.status === "automatic_refund").length,
           reviewForRefund: pkgs.filter((pkg) => pkg.status === "review_for_refund").length,
           closed: pkgs.filter((pkg) => pkg.status === "closed").length
         }
@@ -172,7 +182,7 @@ export default function ReportsPage(): JSX.Element | null {
           </tr>
           <tr>
             <td>
-              <StatusBadge status="ready_for_refund" />
+              <StatusBadge status="automatic_refund" />
             </td>
             <td>{report.byStatus.readyForRefund}</td>
           </tr>
@@ -205,11 +215,13 @@ export default function ReportsPage(): JSX.Element | null {
 
         <article className="panel">
           <label htmlFor="conditionFilter">Actual condition</label>
-          <select id="conditionFilter" value={selectedCondition} onChange={(event) => setSelectedCondition(event.target.value as "all" | "Damaged" | "Opened" | "New")}>
+          <select id="conditionFilter" value={selectedCondition} onChange={(event) => setSelectedCondition(event.target.value as "all" | "Damaged" | "Opened" | "New" | "Missing" | "Partial Return")}>
             <option value="all">All</option>
             <option value="Damaged">Damaged</option>
             <option value="Opened">Opened</option>
             <option value="New">New</option>
+            <option value="Missing">Missing</option>
+            <option value="Partial Return">Partial Return</option>
           </select>
         </article>
 
@@ -219,7 +231,7 @@ export default function ReportsPage(): JSX.Element | null {
             <option value="all">All</option>
             <option value="open">Open</option>
             <option value="scanned">Scanned</option>
-            <option value="ready_for_refund">Ready for Refund</option>
+            <option value="automatic_refund">Automatic Refund</option>
             <option value="review_for_refund">Review for Refund</option>
             <option value="closed">Closed</option>
           </select>
@@ -250,6 +262,7 @@ export default function ReportsPage(): JSX.Element | null {
             <th>Expected</th>
             <th>Actual</th>
             <th>Reason</th>
+            <th>Notes</th>
             <th>Status</th>
             <th>Evidence</th>
           </tr>
@@ -257,6 +270,7 @@ export default function ReportsPage(): JSX.Element | null {
         <tbody>
           {filteredItems.map((item) => {
             const photo = item.id ? photosByItemId[item.id] : undefined;
+            const itemNotes = item.id ? notesByItemId[item.id] : undefined;
             const packageStatus = statusByTracking[item.returnTrackingNumber];
             return (
               <tr key={`${item.returnTrackingNumber}_${item.barcode}_${item.orderReference}`}>
@@ -274,6 +288,11 @@ export default function ReportsPage(): JSX.Element | null {
                 <td>{item.expectedCondition}</td>
                 <td>{item.actualCondition || "Pending"}</td>
                 <td>{item.customerReturnReason || "-"}</td>
+                <td>
+                  {itemNotes && itemNotes.length > 0
+                    ? itemNotes.map((note) => note.note).join("; ")
+                    : "-"}
+                </td>
                 <td>{packageStatus ? <StatusBadge status={packageStatus} /> : "-"}</td>
                 <td>
                   {photo ? (

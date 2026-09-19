@@ -7,7 +7,7 @@ type Props = {
 const labels: Record<PackageStatus, string> = {
   open: "Open",
   scanned: "Scanned",
-  ready_for_refund: "Ready for Refund",
+  automatic_refund: "Automatic Refund",
   review_for_refund: "Review for Refund",
   closed: "Closed"
 };
