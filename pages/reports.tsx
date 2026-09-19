@@ -273,7 +273,7 @@ export default function ReportsPage(): JSX.Element | null {
             const itemNotes = item.id ? notesByItemId[item.id] : undefined;
             const packageStatus = statusByTracking[item.returnTrackingNumber];
             return (
-              <tr key={`${item.returnTrackingNumber}_${item.barcode}_${item.orderReference}`}>
+              <tr key={item.id || `${item.returnTrackingNumber}_${item.barcode}_${item.orderReference}`}>
                 <td>
                   <Link href={`/package-review?tracking=${encodeURIComponent(item.returnTrackingNumber)}`}>
                     <a className="tracking-link">{item.returnTrackingNumber}</a>
