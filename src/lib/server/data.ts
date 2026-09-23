@@ -16,6 +16,19 @@ async function resolveUserId(email: string): Promise<string | null> {
   return data?.id || null;
 }
 
+const INSPECTION_PHOTOS_BUCKET = "inspection-photos";
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 6;
+
+function parseDataUrl(dataUrl: string): { buffer: Buffer; contentType: string; extension: string } | null {
+  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
+  if (!match) {
+    return null;
+  }
+  const contentType = match[1];
+  const extension = contentType.split("/")[1]?.split("+")[0] || "jpg";
+  return { buffer: Buffer.from(match[2], "base64"), contentType, extension };
+}
+
 export async function getPackages(): Promise<PackageSummary[]> {
   const { data, error } = await supabaseAdmin.from("packages").select("*").order("created_at", { ascending: false });
   if (error || !data) {
@@ -286,9 +299,22 @@ export async function updateItemCondition(packageItemId: string, actualCondition
 
 export async function saveInspectionPhoto(packageItemId: string, filePath: string, uploadedBy: string): Promise<void> {
   const userId = await resolveUserId(uploadedBy);
+  const parsed = parseDataUrl(filePath);
+  if (!parsed) {
+    throw new Error("Unable to save inspection photo: unrecognized image data.");
+  }
+
+  const objectPath = `${packageItemId}/${Date.now()}.${parsed.extension}`;
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from(INSPECTION_PHOTOS_BUCKET)
+    .upload(objectPath, parsed.buffer, { contentType: parsed.contentType, upsert: false });
+  if (uploadError) {
+    throw new Error(uploadError.message || "Unable to upload inspection photo.");
+  }
+
   const { error } = await supabaseAdmin.from("inspection_photos").insert({
     package_item_id: packageItemId,
-    file_path: filePath,
+    file_path: objectPath,
     uploaded_by: userId
   });
 
@@ -303,10 +329,25 @@ export async function getInspectionPhotos(): Promise<InspectionPhoto[]> {
     return [];
   }
 
+  // Older rows stored a full base64 data URL directly; keep serving those as-is.
+  // Newer rows store a Storage object path and need a fresh signed URL per request.
+  const storagePaths = data.map((row) => row.file_path).filter((path) => !path.startsWith("data:"));
+  const signedUrlByPath = new Map<string, string>();
+  if (storagePaths.length > 0) {
+    const { data: signedUrls } = await supabaseAdmin.storage
+      .from(INSPECTION_PHOTOS_BUCKET)
+      .createSignedUrls(storagePaths, SIGNED_URL_TTL_SECONDS);
+    for (const entry of signedUrls || []) {
+      if (entry.signedUrl && entry.path) {
+        signedUrlByPath.set(entry.path, entry.signedUrl);
+      }
+    }
+  }
+
   return data.map((row) => ({
     id: row.id,
     packageItemId: row.package_item_id,
-    filePath: row.file_path,
+    filePath: row.file_path.startsWith("data:") ? row.file_path : signedUrlByPath.get(row.file_path) || "",
     uploadedBy: "unknown",
     createdAt: row.created_at
   }));
@@ -437,8 +478,7 @@ export async function getOperationNotes(): Promise<OperationNote[]> {
   const { data, error } = await supabaseAdmin
     .from("operation_notes")
     .select("id, note, created_at, package_item_id, app_users(full_name, email)")
-    .order("created_at", { ascending: false })
-    .limit(200);
+    .order("created_at", { ascending: false });
 
   if (error || !data) {
     return [];
