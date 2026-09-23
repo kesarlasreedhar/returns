@@ -14,6 +14,18 @@
 
 const fs = require("fs");
 const path = require("path");
+
+// This project targets Node 12/14 for the app itself, which has no global
+// fetch/Headers — but @supabase/supabase-js v2 requires both to exist globally.
+// Polyfill before requiring it (dev-only dependency, script use only).
+if (typeof fetch === "undefined") {
+  const nodeFetch = require("node-fetch");
+  global.fetch = nodeFetch;
+  global.Headers = nodeFetch.Headers;
+  global.Request = nodeFetch.Request;
+  global.Response = nodeFetch.Response;
+}
+
 const { createClient } = require("@supabase/supabase-js");
 
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -49,7 +61,13 @@ async function main() {
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env.local");
   }
-  const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
+  // Node 14 has no native WebSocket, which the realtime client requires just to
+  // construct — supply the `ws` package's implementation (same fix as supabase-admin.ts).
+  const { WebSocket } = require("ws");
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false },
+    realtime: { transport: WebSocket }
+  });
 
   console.log(DRY_RUN ? "Running in DRY RUN mode (no writes will be made).\n" : "Running for real. This will modify production data.\n");
 
